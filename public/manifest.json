@@ -1,0 +1,22 @@
+{
+  "short_name": "Kajur DKV",
+  "name": "SI-KAJUR PKL DKV: Administrasi Digital Siswa & Surat",
+  "description": "Aplikasi manajemen, import massal, generate PDF surat, email HRD otomatis, dan generator Google Apps Script untuk PKL Desain Komunikasi Visual.",
+  "icons": [
+    {
+      "src": "https://img.icons8.com/color/192/000000/electronic-agreement.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://img.icons8.com/color/512/000000/electronic-agreement.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0f172a",
+  "theme_color": "#4f46e5",
+  "display": "standalone",
+  "orientation": "portrait"
+}
