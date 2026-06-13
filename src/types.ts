@@ -19,6 +19,7 @@ export interface Student {
   driveKaryaUrl?: string;
   pklStartDate?: string;
   pklEndDate?: string;
+  unassignedStartDate?: string;
 }
 
 export interface Company {
@@ -44,6 +45,22 @@ export interface AppSettings {
   headOfHubinNIP: string;
   emailSubjectTemplate?: string;
   emailBodyTemplate?: string;
+  schoolLogoBase64?: string;
+  schoolHeaderGov?: string;
+  schoolHeaderName?: string;
+  schoolHeaderAddress?: string;
+  schoolHeaderContact?: string;
+  schoolFooterText?: string;
+  googleSheetsApiKey?: string;
+  googleDriveApiKey?: string;
+  draftTemplates?: {
+    id: string;
+    name: string;
+    subject: string;
+    body: string;
+  }[];
+  activeDraftTemplateId?: string;
+  themeColor?: string;
 }
 
 export interface EmailHistory {
@@ -71,3 +88,13 @@ export interface LogbookEntry {
   approvedByDudi: boolean; // Paraf DUDI
   approvedByTeacher: boolean; // Paraf Guru DKV
 }
+
+export interface ActivityLog {
+  id: string;
+  timestamp: string; // e.g., "13 Juni 2026, 10:35 WIB" or formatted ISO
+  user: string; // e.g., default administrator or active user email
+  action: string; // e.g., "Hapus Siswa", "Ubah Kuota", "Tambah Siswa"
+  details: string; // Detail deskripsi tindakan
+  category: "siswa" | "perusahaan" | "sistem";
+}
+

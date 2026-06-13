@@ -8,10 +8,11 @@ import LettersTab from "./components/LettersTab";
 import EmailTab from "./components/EmailTab";
 import ScriptGenTab from "./components/ScriptGenTab";
 import SettingsTab from "./components/SettingsTab";
+import ActivityLogsTab from "./components/ActivityLogsTab";
 import { motion, AnimatePresence } from "motion/react";
 
-import { Student, Company, AppSettings, EmailHistory, LogbookEntry } from "./types";
-import { DEFAULT_STUDENTS, DEFAULT_COMPANIES, DEFAULT_SETTINGS, DEFAULT_LOGBOOKS } from "./data";
+import { Student, Company, AppSettings, EmailHistory, LogbookEntry, ActivityLog } from "./types";
+import { DEFAULT_STUDENTS, DEFAULT_COMPANIES, DEFAULT_SETTINGS, DEFAULT_LOGBOOKS, DEFAULT_ACTIVITY_LOGS } from "./data";
 
 import { 
   Home, 
@@ -29,8 +30,70 @@ import {
   Keyboard,
   Info,
   X,
-  CheckCircle
+  CheckCircle,
+  History
 } from "lucide-react";
+
+function hexToRgb(hex: string) {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? {
+    r: parseInt(result[1], 16),
+    g: parseInt(result[2], 16),
+    b: parseInt(result[3], 16)
+  } : null;
+}
+
+function rgbToHex(r: number, g: number, b: number) {
+  return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+
+function mixColor(hex: string, mixWith: {r: number, g: number, b: number}, weight: number) {
+  const color = hexToRgb(hex);
+  if (!color) return hex;
+  const r = Math.round(color.r * (1 - weight) + mixWith.r * weight);
+  const g = Math.round(color.g * (1 - weight) + mixWith.g * weight);
+  const b = Math.round(color.b * (1 - weight) + mixWith.b * weight);
+  return rgbToHex(Math.max(0, Math.min(255, r)), Math.max(0, Math.min(255, g)), Math.max(0, Math.min(255, b)));
+}
+
+function getShades(primaryHex: string) {
+  const white = { r: 255, g: 255, b: 255 };
+  const black = { r: 12, g: 12, b: 20 };
+
+  return {
+    50: mixColor(primaryHex, white, 0.95),
+    100: mixColor(primaryHex, white, 0.85),
+    200: mixColor(primaryHex, white, 0.65),
+    300: mixColor(primaryHex, white, 0.45),
+    400: mixColor(primaryHex, white, 0.22),
+    500: primaryHex,
+    600: mixColor(primaryHex, black, 0.15),
+    700: mixColor(primaryHex, black, 0.35),
+    800: mixColor(primaryHex, black, 0.55),
+    900: mixColor(primaryHex, black, 0.75),
+    950: mixColor(primaryHex, black, 0.88),
+  };
+}
+
+export function applyThemeColor(color: string) {
+  if (!color) return;
+  const root = document.documentElement;
+  root.style.setProperty('--theme-color', color);
+
+  const shades = getShades(color);
+
+  // Set meta theme-color tag
+  const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+  if (metaThemeColor) {
+    metaThemeColor.setAttribute('content', color);
+  }
+
+  // Inject into root CSS variables for dynamic Tailwind usage
+  Object.entries(shades).forEach(([shade, value]) => {
+    root.style.setProperty(`--blue-${shade}`, value);
+    root.style.setProperty(`--indigo-${shade}`, value);
+  });
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>("dashboard");
@@ -70,8 +133,29 @@ export default function App() {
       if (prev.some(c => c.id === company.id || c.name.toLowerCase() === company.name.toLowerCase())) {
         return prev;
       }
+      addActivityLog("Tambah Perusahaan", `Menambahkan mitra perusahaan baru: ${company.name} dengan kuota target ${company.slots} slot.`, "perusahaan");
       return [...prev, company];
     });
+  };
+
+  const handleUpdateCompany = (id: string, updatedFields: Partial<Company>) => {
+    const existing = companies.find(c => c.id === id);
+    if (existing) {
+      if (updatedFields.slots !== undefined && updatedFields.slots !== existing.slots) {
+        addActivityLog(
+          "Ubah Kuota Perusahaan",
+          `Mengubah kuota target ${existing.name} dari ${existing.slots} menjadi ${updatedFields.slots} slot penempatan.`,
+          "perusahaan"
+        );
+      } else {
+        addActivityLog(
+          "Ubah Perusahaan",
+          `Memperbarui detail profil kemitraan industri: ${existing.name}.`,
+          "perusahaan"
+        );
+      }
+    }
+    setCompanies(prev => prev.map(c => c.id === id ? { ...c, ...updatedFields } : c));
   };
 
   const handleBulkImportMaster = (parsedData: Array<{ student: Omit<Student, "id">; company?: Company }>) => {
@@ -89,11 +173,18 @@ export default function App() {
         newCompanies.forEach(nc => {
           if (!updated.some(c => c.id === nc.id || c.name.toLowerCase() === nc.name.toLowerCase())) {
             updated.push(nc);
+            addActivityLog("Tambah Perusahaan", `Menambahkan mitra industri baru ${nc.name} via import spreadsheet master.`, "perusahaan");
           }
         });
         return updated;
       });
     }
+
+    addActivityLog(
+      "Impor Master Siswa & Mitra",
+      `Berhasil mengimpor/menggabungkan data ${parsedData.length} siswa dan mitra industry terkait dari spreadsheet master PKL.`,
+      "sistem"
+    );
 
     // 2. Map & insert students, updating existing ones if NIS/NISN matches!
     setStudents(prev => {
@@ -155,6 +246,32 @@ export default function App() {
     return local ? JSON.parse(local) : DEFAULT_LOGBOOKS;
   });
 
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => {
+    const local = localStorage.getItem("pkl_activity_logs");
+    return local ? JSON.parse(local) : DEFAULT_ACTIVITY_LOGS;
+  });
+
+  const getIndonesianTimestamp = () => {
+    const now = new Date();
+    const months = [
+      "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+      "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+    ];
+    return `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}, ${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")} WIB`;
+  };
+
+  const addActivityLog = (action: string, details: string, category: "siswa" | "perusahaan" | "sistem") => {
+    const newLog: ActivityLog = {
+      id: "log-act-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+      timestamp: getIndonesianTimestamp(),
+      user: "surtiwijaya26@guru.smk.belajar.id", // Active administrator
+      action,
+      details,
+      category
+    };
+    setActivityLogs(prev => [newLog, ...prev]);
+  };
+
   // Keep Sync with modern persistence
   useEffect(() => {
     localStorage.setItem("pkl_students", JSON.stringify(students));
@@ -164,6 +281,13 @@ export default function App() {
     localStorage.setItem("pkl_settings", JSON.stringify(settings));
   }, [settings]);
 
+  // Synchronize CSS variable theme dynamically when settings.themeColor changes
+  useEffect(() => {
+    const col = settings.themeColor || "#3b82f6";
+    applyThemeColor(col);
+    (window as any).applyThemeColor = applyThemeColor;
+  }, [settings.themeColor]);
+
   useEffect(() => {
     localStorage.setItem("pkl_email_history", JSON.stringify(emailHistory));
   }, [emailHistory]);
@@ -171,6 +295,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("pkl_logbooks", JSON.stringify(logbooks));
   }, [logbooks]);
+
+  useEffect(() => {
+    localStorage.setItem("pkl_activity_logs", JSON.stringify(activityLogs));
+  }, [activityLogs]);
 
   // Keyboard Shortcuts Hook
   useEffect(() => {
@@ -306,6 +434,27 @@ export default function App() {
     setLogbooks(prev => [...entries, ...prev]);
   };
 
+  const handleSyncLogbooks = (entries: LogbookEntry[]) => {
+    setLogbooks(prev => {
+      const merged = [...prev];
+      entries.forEach(incoming => {
+        const matchIndex = merged.findIndex(existing => 
+          existing.id === incoming.id || 
+          (existing.studentId === incoming.studentId && existing.date === incoming.date)
+        );
+        if (matchIndex >= 0) {
+          merged[matchIndex] = {
+            ...merged[matchIndex],
+            ...incoming
+          };
+        } else {
+          merged.push(incoming);
+        }
+      });
+      return merged;
+    });
+  };
+
   const handleUpdateSettings = (updated: Partial<AppSettings>) => {
     setSettings(prev => ({ ...prev, ...updated }));
   };
@@ -314,17 +463,40 @@ export default function App() {
     const id = "stud-" + Date.now() + "-" + Math.floor(Math.random() * 100);
     const newStudentItem: Student = {
       ...student,
-      id
+      id,
+      unassignedStartDate: student.status === "Unassigned" ? new Date().toISOString().split('T')[0] : undefined
     };
+    addActivityLog("Tambah Siswa", `Menambahkan siswa baru: ${student.name} (NIS: ${student.nis}) di kelas ${student.className}.`, "siswa");
     setStudents(prev => [newStudentItem, ...prev]);
   };
 
   const handleUpdateStudent = (id: string, updated: Partial<Student>) => {
-    setStudents(prev => prev.map(s => s.id === id ? { ...s, ...updated } : s));
+    const existing = students.find(s => s.id === id);
+    let finalUpdate = { ...updated };
+    if (existing) {
+      if (updated.status !== undefined && updated.status !== existing.status) {
+        addActivityLog("Ubah Status Siswa", `Mengubah status penempatan ${existing.name} dari "${existing.status}" menjadi "${updated.status}".`, "siswa");
+        if (updated.status === "Unassigned") {
+          finalUpdate.unassignedStartDate = new Date().toISOString().split('T')[0];
+        } else {
+          finalUpdate.unassignedStartDate = undefined;
+        }
+      } else if (updated.companyId !== undefined && updated.companyId !== existing.companyId) {
+        const oldCo = companies.find(c => c.id === existing.companyId)?.name || "Mencari Mandiri / Belum Terdistribusi";
+        const newCo = companies.find(c => c.id === updated.companyId)?.name || "Mencari Mandiri / Belum Terdistribusi";
+        addActivityLog("Penempatan Siswa", `Memindahkan penempatan ${existing.name} dari "${oldCo}" menjadi "${newCo}".`, "siswa");
+      } else {
+        addActivityLog("Ubah Profil Siswa", `Memperbarui detail informasi profil siswa ${existing.name} (NIS: ${existing.nis}).`, "siswa");
+      }
+    }
+    setStudents(prev => prev.map(s => s.id === id ? { ...s, ...finalUpdate } : s));
   };
 
   const handleDeleteStudent = (id: string) => {
-    if (window.confirm("Apakah Anda yakin ingin menghapus data siswa ini? Tindakan ini tidak dapat dibatalkan.")) {
+    const existing = students.find(s => s.id === id);
+    if (!existing) return;
+    if (window.confirm(`Apakah Anda yakin ingin menghapus data siswa ${existing.name}? Tindakan ini tidak dapat dibatalkan.`)) {
+      addActivityLog("Hapus Siswa", `Menghapus data siswa: ${existing.name} (NIS: ${existing.nis}) dari basis data tingkat sekolah.`, "siswa");
       setStudents(prev => prev.filter(s => s.id !== id));
     }
   };
@@ -386,6 +558,7 @@ export default function App() {
     }
 
     if (newStudentsList.length > 0) {
+      addActivityLog("Impor Siswa", `Berhasil mengimpor ${newStudentsList.length} siswa baru via penyalinan format spreadsheet excel/table.`, "siswa");
       setStudents(prev => [...prev, ...newStudentsList]);
     }
 
@@ -529,6 +702,21 @@ export default function App() {
                 Script Generator
               </button>
 
+              {/* Activity Logs Menu */}
+              <button
+                id="nav-logs-tab"
+                onClick={() => setActiveTab("logs")}
+                className={`px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  activeTab === "logs" 
+                    ? "bg-blue-605/85 border border-blue-500/30 text-white shadow-lg shadow-blue-500/20" 
+                    : "text-white/60 hover:text-white hover:bg-white/10"
+                }`}
+              >
+                <History className="w-4 h-4 text-indigo-400" />
+                Log Aktivitas
+                <span className="bg-emerald-500/25 text-emerald-300 font-sans text-[8.5px] px-1 rounded font-bold border border-emerald-500/30 ml-0.5">Audit</span>
+              </button>
+
               {/* Settings Menu */}
               <button
                 id="nav-settings-tab"
@@ -575,6 +763,7 @@ export default function App() {
             companies={companies} 
             logbooks={logbooks}
             onTabChange={setActiveTab} 
+            onUpdateStudent={handleUpdateStudent}
           />
         )}
 
@@ -593,11 +782,15 @@ export default function App() {
           <MasterPklTab
             students={students}
             companies={companies}
+            logbooks={logbooks}
             onAddStudent={handleAddStudent}
             onUpdateStudent={handleUpdateStudent}
             onDeleteStudent={handleDeleteStudent}
             onAddCompany={handleAddCompany}
+            onUpdateCompany={handleUpdateCompany}
             onBulkImportMaster={handleBulkImportMaster}
+            onSyncLogbooks={handleSyncLogbooks}
+            showToast={showToast}
           />
         )}
 
@@ -647,6 +840,14 @@ export default function App() {
             students={students}
             emailHistory={emailHistory}
             onRestoreDatabase={handleRestoreDatabase}
+          />
+        )}
+
+        {activeTab === "logs" && (
+          <ActivityLogsTab
+            logs={activityLogs}
+            onClearLogs={() => setActivityLogs([])}
+            showToast={showToast}
           />
         )}
 

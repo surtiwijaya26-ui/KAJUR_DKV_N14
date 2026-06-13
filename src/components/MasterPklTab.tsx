@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Student, Company, StudentStatus } from "../types";
+import { Student, Company, StudentStatus, LogbookEntry } from "../types";
+import GoogleSheetsSync from "./GoogleSheetsSync";
 import { 
   Table, 
   Search, 
@@ -21,29 +22,41 @@ import {
   Filter,
   ArrowRight,
   Sparkles,
-  ExternalLink
+  ExternalLink,
+  Users,
+  Briefcase,
+  Zap
 } from "lucide-react";
 
 interface MasterPklTabProps {
   students: Student[];
   companies: Company[];
+  logbooks: LogbookEntry[];
   onAddStudent: (student: Omit<Student, "id">) => void;
   onUpdateStudent: (id: string, updated: Partial<Student>) => void;
   onDeleteStudent: (id: string) => void;
   onAddCompany: (company: Company) => void;
+  onUpdateCompany?: (id: string, updated: Partial<Company>) => void;
   onBulkImportMaster: (parsedData: Array<{ student: Omit<Student, "id">; company?: Company }>) => void;
+  onSyncLogbooks: (entries: LogbookEntry[]) => void;
+  showToast?: (message: string, type?: "info" | "success") => void;
 }
 
 export default function MasterPklTab({
   students,
   companies,
+  logbooks,
   onAddStudent,
   onUpdateStudent,
   onDeleteStudent,
   onAddCompany,
-  onBulkImportMaster
+  onUpdateCompany,
+  onBulkImportMaster,
+  onSyncLogbooks,
+  showToast
 }: MasterPklTabProps) {
   // Navigation & Search Filters
+  const [activeSubTab, setActiveSubTab] = useState<"siswa" | "kuota">("siswa");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [classFilter, setClassFilter] = useState<string>("ALL");
@@ -83,6 +96,57 @@ export default function MasterPklTab({
   const [bulkRawText, setBulkRawText] = useState("");
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [bulkSuccessMsg, setBulkSuccessMsg] = useState<string | null>(null);
+
+  // Floating / Quick Add Company States
+  const [isQuickCompanyOpen, setIsQuickCompanyOpen] = useState(false);
+  const [quickCompanyName, setQuickCompanyName] = useState("");
+  const [quickCompanySlots, setQuickCompanySlots] = useState(3);
+  const [quickCompanyAddress, setQuickCompanyAddress] = useState("Tangerang");
+  const [quickCompanyIndustry, setQuickCompanyIndustry] = useState("Industri Kreatif DKV");
+  const [quickCompanyHrd, setQuickCompanyHrd] = useState("HRD Team");
+  const [quickCompanyEmail, setQuickCompanyEmail] = useState("");
+
+  const handleQuickAddCompany = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickCompanyName.trim()) {
+      alert("Nama perusahaan mitra wajib diisi!");
+      return;
+    }
+
+    const normalizedNew = quickCompanyName.trim().toLowerCase();
+    const isDuplicate = companies.some(c => c.name.toLowerCase() === normalizedNew);
+    if (isDuplicate) {
+      alert(`Perusahaan "${quickCompanyName}" sudah terdaftar sebagai mitra industri.`);
+      return;
+    }
+
+    const newCompanyId = "comp-instant-" + Date.now();
+    const newCompany: Company = {
+      id: newCompanyId,
+      name: quickCompanyName.trim(),
+      slots: Math.max(1, quickCompanySlots),
+      address: quickCompanyAddress.trim() || "Tangerang",
+      industry: quickCompanyIndustry.trim() || "Industri Kreatif DKV",
+      contactPerson: quickCompanyHrd.trim() || "HRD Team",
+      hrdEmail: quickCompanyEmail.trim() || `${quickCompanyName.trim().toLowerCase().replace(/\s+/g, "")}@industrial.id`
+    };
+
+    onAddCompany(newCompany);
+    if (showToast) {
+      showToast(`Mitra "${newCompany.name}" berhasil ditambahkan secara instan!`, "success");
+    } else {
+      alert(`Mitra "${newCompany.name}" berhasil ditambahkan!`);
+    }
+
+    // Reset fields
+    setQuickCompanyName("");
+    setQuickCompanySlots(3);
+    setQuickCompanyAddress("Tangerang");
+    setQuickCompanyIndustry("Industri Kreatif DKV");
+    setQuickCompanyHrd("HRD Team");
+    setQuickCompanyEmail("");
+    setIsQuickCompanyOpen(false);
+  };
 
   // Helper template paste trigger
   const handleLoadDemoBulk = () => {
@@ -479,11 +543,43 @@ Rian Firmansyah | 0051234571 | XII DKV 1 | Desain Komunikasi Visual | Fotografi 
         </div>
       </div>
 
-      {/* Primary Toolbar section & Actions Row */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 font-sans bg-slate-900/25 p-4 rounded-2xl border border-white/5" id="master-toolbar">
-        
-        {/* Left Search + Quick Count Filter tags */}
-        <div className="relative w-full sm:max-w-md">
+      {/* Sub-tabs Toggle for Allocations & Co-op Capacities */}
+      <div className="flex border-b border-white/10 shrink-0 gap-1 pb-1" id="master-subtabs-nav">
+        <button
+          type="button"
+          onClick={() => setActiveSubTab("siswa")}
+          className={`px-4.5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition cursor-pointer ${
+            activeSubTab === "siswa"
+              ? "bg-blue-600 text-white shadow"
+              : "text-white/60 hover:text-white hover:bg-white/5"
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          Siswa & Penempatan Magang
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveSubTab("kuota")}
+          id="tab-toggle-kuota"
+          className={`px-4.5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition cursor-pointer ${
+            activeSubTab === "kuota"
+              ? "bg-blue-600 text-white shadow"
+              : "text-white/60 hover:text-white hover:bg-white/5"
+          }`}
+        >
+          <Briefcase className="w-4 h-4" />
+          Kuota Target Perusahaan
+          <span className="bg-emerald-500/20 text-emerald-400 font-mono text-[9px] font-bold px-1.5 py-0.2 rounded">Real-time</span>
+        </button>
+      </div>
+
+      {activeSubTab === "siswa" ? (
+        <>
+          {/* Primary Toolbar section & Actions Row */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 font-sans bg-slate-900/25 p-4 rounded-2xl border border-white/5" id="master-toolbar">
+            
+            {/* Left Search + Quick Count Filter tags */}
+            <div className="relative w-full sm:max-w-md">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"
@@ -670,6 +766,16 @@ Rian Firmansyah | 0051234571 | XII DKV 1 | Desain Komunikasi Visual | Fotografi 
 
       </div>
 
+      {/* Google Sheets Sync Integration Panel */}
+      <GoogleSheetsSync
+        students={students}
+        companies={companies}
+        logbooks={logbooks}
+        onImportMaster={onBulkImportMaster}
+        onSyncLogbooks={onSyncLogbooks}
+        showToast={showToast}
+      />
+
       {/* Grid Table Workspace */}
       <div className="glass-panel rounded-2xl border border-white/5 shadow-2xl overflow-hidden font-sans" id="master-table-workspace">
         <div className="overflow-x-auto">
@@ -840,6 +946,197 @@ Rian Firmansyah | 0051234571 | XII DKV 1 | Desain Komunikasi Visual | Fotografi 
           </table>
         </div>
       </div>
+        </>
+      ) : (
+        <div className="glass-panel p-6 rounded-2xl border border-white/5 bg-slate-950/40 shadow-2xl space-y-4" id="company-quota-workspace">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-white/10 pb-4">
+            <div>
+              <h3 className="font-display font-black text-sm text-white uppercase tracking-wide flex items-center gap-2">
+                🏢 Target Quota & Sisa Penempatan Perusahaan <span className="text-[10px] bg-emerald-500/20 text-emerald-355 font-mono px-2 py-0.5 rounded border border-emerald-500/20 normal-case font-normal select-none">Real-time</span>
+              </h3>
+              <p className="text-white/50 text-xs">Sesuaikan ketersediaan kuota slot PKL per mitra DUDI dan monitor sisa kapasitas penempatan secara real-time.</p>
+            </div>
+            
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Filter Search inside company list */}
+              <div className="relative w-full sm:w-64 font-sans text-xs">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Cari perusahaan..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-3 py-1.5 bg-[#121221] border border-white/10 hover:border-white/15 focus:border-blue-500/60 outline-none text-slate-100 rounded-lg placeholder-slate-500 transition"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsQuickCompanyOpen(true)}
+                className="bg-indigo-600 hover:bg-indigo-500 border border-indigo-500/20 text-white font-extrabold text-[11px] px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-md shadow-indigo-500/10"
+                title="Tambahkan data mitra industri baru secara instan"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300 animate-pulse" />
+                Quick Add Mitra
+              </button>
+
+              <div className="bg-[#121221] p-1.5 rounded-xl border border-white/5 flex items-center gap-1 font-sans">
+                <span className="text-[10px] text-white/40 font-mono font-bold px-1 select-none">Total Mitra:</span>
+                <span className="bg-indigo-500/20 text-[#a5b4fc] text-[11px] font-mono font-black border border-indigo-500/20 px-2 py-0.5 rounded">
+                  {companies.filter(c => c.id !== "comp-6").length} DUDI
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto font-sans">
+            <table className="w-full border-collapse text-left text-xs font-sans">
+              <thead>
+                <tr className="bg-[#121221] border-b border-white/10 text-white/50 uppercase tracking-widest font-mono text-[9px] select-none">
+                  <th className="py-4 px-4 font-bold">Mitra Industri DKV</th>
+                  <th className="py-4 px-4 font-bold">Alamat & Kontak HRD</th>
+                  <th className="py-4 px-4 font-bold text-center">Target Quota Siswa</th>
+                  <th className="py-4 px-4 font-bold text-center">Siswa Ditempatkan</th>
+                  <th className="py-4 px-4 font-bold text-center">Keterisian Kuota</th>
+                  <th className="py-4 px-4 font-bold text-center">Sisa Kapasitas (Kekosongan)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5 text-slate-300">
+                {(() => {
+                  const filteredCompanies = companies
+                    .filter(c => c.id !== "comp-6")
+                    .filter(c => {
+                      if (!searchTerm) return true;
+                      return c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                             c.industry.toLowerCase().includes(searchTerm.toLowerCase());
+                    });
+
+                  if (filteredCompanies.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={6} className="py-12 text-center text-slate-500">
+                          Tidak ada perusahaan yang cocok dengan pencarian Anda.
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return filteredCompanies.map(company => {
+                    // Count students assigned to this company (not unassigned)
+                    const assignedCount = students.filter(s => s.companyId === company.id && s.status !== "Unassigned").length;
+                    const remaining = company.slots - assignedCount;
+
+                    // Progress occupancy calculation
+                    const fillPercent = company.slots > 0 
+                      ? Math.min(100, Math.round((assignedCount / company.slots) * 100))
+                      : 0;
+
+                    // Color code selection
+                    let barColorClass = "bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.3)]";
+                    let textColorClass = "text-indigo-400";
+
+                    if (fillPercent >= 100) {
+                      barColorClass = "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]";
+                      textColorClass = "text-emerald-400 font-black";
+                    } else if (fillPercent >= 70) {
+                      barColorClass = "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.3)]";
+                      textColorClass = "text-amber-450 font-black";
+                    } else if (fillPercent > 0) {
+                      barColorClass = "bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.2)]";
+                      textColorClass = "text-sky-400 font-bold";
+                    } else {
+                      barColorClass = "bg-white/10";
+                      textColorClass = "text-slate-500";
+                    }
+
+                    return (
+                      <tr key={company.id} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="py-4 px-4">
+                          <div className="space-y-1 max-w-xs">
+                            <span className="font-bold text-white text-sm block">🏢 {company.name}</span>
+                            <span className="text-[10px] bg-indigo-500/10 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/25 inline-block font-semibold">
+                              {company.industry}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="space-y-1 text-slate-300 max-w-sm">
+                            <p className="truncate text-white/70 text-[11px]" title={company.address}>📍 {company.address}</p>
+                            <p className="text-[10px] text-slate-400 font-semibold select-all">HRD: {company.contactPerson} • {company.hrdEmail}</p>
+                          </div>
+                        </td>
+                        <td className="py-4 px-4 text-center">
+                          <div className="flex items-center justify-center gap-3 select-none">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onUpdateCompany) {
+                                  onUpdateCompany(company.id, { slots: Math.max(1, company.slots - 1) });
+                                }
+                              }}
+                              className="w-7 h-7 bg-white/5 hover:bg-rose-500/20 active:scale-95 border border-white/10 hover:text-rose-350 hover:border-rose-500/20 rounded-lg flex items-center justify-center font-bold text-sm cursor-pointer transition select-none"
+                              title="Kurangi kuota siswa target"
+                            >
+                              -
+                            </button>
+                            <span className="text-sm font-black font-mono text-white w-5 select-none">{company.slots}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onUpdateCompany) {
+                                  onUpdateCompany(company.id, { slots: company.slots + 1 });
+                                }
+                              }}
+                              className="w-7 h-7 bg-white/5 hover:bg-emerald-500/20 active:scale-95 border border-white/10 hover:text-emerald-350 hover:border-emerald-500/20 rounded-lg flex items-center justify-center font-bold text-sm cursor-pointer transition select-none"
+                              title="Tambah kuota siswa target"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </td>
+                        <td className="py-4 px-4 text-center">
+                          <span className="bg-blue-500/10 text-blue-300 border border-blue-500/20 font-mono font-bold px-2.5 py-1 rounded text-xs select-none">
+                            {assignedCount} Siswa
+                          </span>
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="space-y-1.5 max-w-[130px] mx-auto select-none">
+                            <div className="flex items-center justify-between text-[10px] font-mono font-bold">
+                              <span className={textColorClass}>{fillPercent}%</span>
+                              <span className="text-white/40">{assignedCount}/{company.slots}</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden p-[1px] border border-white/5">
+                              <div
+                                className={`h-full rounded-full transition-all duration-500 ${barColorClass}`}
+                                style={{ width: `${fillPercent}%` }}
+                              />
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-4 px-4 text-center">
+                          {remaining > 0 ? (
+                            <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold px-2.5 py-1 rounded text-xs select-none font-sans">
+                              {remaining} Slot Tersisa
+                            </span>
+                          ) : remaining === 0 ? (
+                            <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold px-2.5 py-1 rounded text-xs select-none font-sans">
+                              Kuota Penuh
+                            </span>
+                          ) : (
+                            <span className="bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold px-2.5 py-1 rounded text-xs select-none font-sans">
+                              Kelebihan {Math.abs(remaining)} Siswa
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Manual ADD / EDIT Dialog Panel Modal */}
       {isFormOpen && (
@@ -1093,6 +1390,152 @@ Rian Firmansyah | 0051234571 | XII DKV 1 | Desain Komunikasi Visual | Fotografi 
                 </button>
               </div>
 
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Action Button for Quick Add Mitra */}
+      <div className="fixed bottom-6 right-6 z-40 select-none">
+        <button
+          onClick={() => setIsQuickCompanyOpen(!isQuickCompanyOpen)}
+          className="p-3.5 bg-gradient-to-tr from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-full shadow-2xl flex items-center justify-center border border-indigo-400/30 hover:border-indigo-400/50 hover:scale-110 active:scale-95 cursor-pointer transition-all duration-300 select-none group relative"
+          title="Tambah Mitra Industri Instan"
+          id="fab-quick-add-company"
+        >
+          <Zap className="w-5 h-5 text-amber-300 fill-amber-300 group-hover:animate-bounce" />
+          <span className="absolute right-14 bg-slate-900 border border-white/10 text-white text-[10px] font-bold px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap shadow-xl">
+            ⚡ Quick Add Mitra
+          </span>
+        </button>
+      </div>
+
+      {/* Floating Drawer/Card Form for Quick Add Mitra */}
+      {isQuickCompanyOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in font-sans">
+          <div className="bg-[#0e0e1a] border border-white/10 rounded-2xl w-full max-w-sm shadow-2xl relative overflow-hidden animate-slide-up">
+            {/* Drawer Header */}
+            <div className="bg-gradient-to-r from-slate-900 to-indigo-950/45 px-5 py-3 border-b border-white/10 flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Zap className="w-4 h-4 text-amber-400 fill-amber-400" />
+                <h4 className="font-display font-extrabold text-xs text-white uppercase tracking-wider">
+                  Quick Add Mitra Industri
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsQuickCompanyOpen(false)}
+                className="bg-white/5 hover:bg-white/10 text-white/50 hover:text-white p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Content Form */}
+            <form onSubmit={handleQuickAddCompany} className="p-5 space-y-4">
+              <p className="text-white/60 text-[11px] leading-relaxed">
+                Tambahkan instansi atau mitra industri (DUDI) baru dengan cepat ke dalam database sekolah secara instan tanpa dialog kompleks.
+              </p>
+
+              {/* Company Name */}
+              <div className="space-y-1 text-xs">
+                <label className="font-bold text-white/70 block">Nama Mitra Industri / Instansi *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Contoh: PT Arise Creative Agency"
+                  value={quickCompanyName}
+                  onChange={(e) => setQuickCompanyName(e.target.value)}
+                  className="w-full bg-[#121223] border border-white/10 rounded-xl p-2.5 outline-none font-semibold text-white focus:border-indigo-500"
+                  autoFocus
+                />
+              </div>
+
+              {/* Number of Slots & Sektor */}
+              <div className="grid grid-cols-2 gap-3.5">
+                <div className="space-y-1 text-xs">
+                  <label className="font-bold text-white/70 block">Kuota Slots *</label>
+                  <div className="flex items-center bg-[#131322] border border-white/10 rounded-xl overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setQuickCompanySlots(prev => Math.max(1, prev - 1))}
+                      className="px-3 py-2 text-white hover:bg-white/5 font-extrabold text-sm transition cursor-pointer"
+                    >
+                      -
+                    </button>
+                    <span className="flex-grow text-center font-bold text-white font-mono text-xs">{quickCompanySlots}</span>
+                    <button
+                      type="button"
+                      onClick={() => setQuickCompanySlots(prev => prev + 1)}
+                      className="px-3 py-2 text-white hover:bg-white/5 font-extrabold text-sm transition cursor-pointer"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-1 text-xs">
+                  <label className="font-bold text-white/70 block">Sektor Bisnis DUDI</label>
+                  <select
+                    value={quickCompanyIndustry}
+                    onChange={(e) => setQuickCompanyIndustry(e.target.value)}
+                    className="w-full bg-[#121223] border border-white/10 rounded-xl p-2.5 outline-none bg-[#131322] font-semibold text-white cursor-pointer focus:border-indigo-500"
+                  >
+                    <option value="Industri Kreatif DKV">Kreatif DKV</option>
+                    <option value="Agensi Periklanan & Desain">Agensi Desain</option>
+                    <option value="Percetakan & Grafis">Percetakan</option>
+                    <option value="Studio Animasi & Game">Animasi / Game</option>
+                    <option value="Event Organizer & Photo">Fotografi / EO</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Simplified Address */}
+              <div className="space-y-1 text-xs">
+                <label className="font-bold text-white/70 block">Alamat Kantor Singkat</label>
+                <input
+                  type="text"
+                  placeholder="Contoh: BSD, Tangerang atau Jakarta"
+                  value={quickCompanyAddress}
+                  onChange={(e) => setQuickCompanyAddress(e.target.value)}
+                  className="w-full bg-[#121223] border border-white/10 rounded-xl p-2.5 outline-none text-white focus:border-indigo-500"
+                />
+              </div>
+
+              {/* Suggestions for Fast Clicking */}
+              <div className="space-y-1">
+                <span className="text-[10px] text-white/40 font-bold block">REKOMENDASI SEKTOR CEPAT:</span>
+                <div className="flex flex-wrap gap-1">
+                  {["Digital Agency", "Rumah Produksi", "Studio Foto"].map(sug => (
+                    <button
+                      key={sug}
+                      type="button"
+                      onClick={() => setQuickCompanyIndustry(sug)}
+                      className="text-[9px] bg-white/5 hover:bg-white/10 text-indigo-350 font-semibold px-2 py-0.5 rounded border border-white/5 transition cursor-pointer"
+                    >
+                      {sug}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Submit panel */}
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-white/5">
+                <button
+                  type="button"
+                  onClick={() => setIsQuickCompanyOpen(false)}
+                  className="bg-white/5 border border-white/10 hover:bg-white/10 text-white/70 hover:text-white px-3.5 py-2 rounded-xl font-bold text-xs cursor-pointer transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl font-extrabold text-xs cursor-pointer transition shadow-lg shadow-indigo-600/25 flex items-center gap-1"
+                >
+                  <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                  Tambah Instan
+                </button>
+              </div>
             </form>
           </div>
         </div>

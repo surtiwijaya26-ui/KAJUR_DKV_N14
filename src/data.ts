@@ -1,4 +1,4 @@
-import { Student, Company, AppSettings, LogbookEntry } from "./types";
+import { Student, Company, AppSettings, LogbookEntry, ActivityLog } from "./types";
 
 export const DEFAULT_COMPANIES: Company[] = [
   {
@@ -73,7 +73,9 @@ export const DEFAULT_STUDENTS: Student[] = [
     parentName: "Suryadi Saputra",
     parentOccupation: "Karyawan Swasta",
     studentAddress: "Perumahan Taman Teluknaga Blok C2/15, Tangerang",
-    birthPlaceDate: "Tangerang, 14 Februari 2008"
+    birthPlaceDate: "Tangerang, 14 Februari 2008",
+    pklStartDate: "2026-04-01",
+    pklEndDate: "2026-06-15"
   },
   {
     id: "stud-2",
@@ -90,7 +92,9 @@ export const DEFAULT_STUDENTS: Student[] = [
     parentName: "Syarif Mukhtar",
     parentOccupation: "PNS",
     studentAddress: "Jl. Kampung Melayu Barat No. 8, Teluknaga, Tangerang",
-    birthPlaceDate: "Jakarta, 29 Mei 2008"
+    birthPlaceDate: "Jakarta, 29 Mei 2008",
+    pklStartDate: "2026-04-01",
+    pklEndDate: "2026-06-17"
   },
   {
     id: "stud-3",
@@ -107,7 +111,9 @@ export const DEFAULT_STUDENTS: Student[] = [
     parentName: "Hendra Wijaya",
     parentOccupation: "Wiraswasta",
     studentAddress: "Desa Tanjung Burung RT 04/RW 02, Teluknaga, Tangerang",
-    birthPlaceDate: "Tangerang, 10 Oktober 2007"
+    birthPlaceDate: "Tangerang, 10 Oktober 2007",
+    pklStartDate: "2026-04-01",
+    pklEndDate: "2026-09-30"
   },
   {
     id: "stud-4",
@@ -155,6 +161,7 @@ export const DEFAULT_STUDENTS: Student[] = [
     phone: "081234567806",
     email: "siti.haliza@siswa.smkn1teluknaga.sch.id",
     status: "Unassigned",
+    unassignedStartDate: "2026-05-20",
     parentName: "Muhammad Zen",
     parentOccupation: "Nelayan",
     studentAddress: "Kp. Muara RT 02/RW 01, Tanjung Pasir, Tangerang",
@@ -202,7 +209,144 @@ Atas perhatian dan kerjasama Bapak/Ibu HRD, kami ucapkan terima kasih.
 
 Hormat kami,
 Kepala Program Studi DKV
+{{HEAD_OF_DEPARTMENT}}`,
+  schoolLogoBase64: "", // starts empty, fellback to standard logo design
+  schoolHeaderGov: "PEMERINTAH PROVINSI BANTEN\nDINAS PENDIDIKAN DAN KEBUDAYAAN",
+  schoolHeaderName: "SMK NEGERI 14 KABUPATEN TANGERANG",
+  schoolHeaderAddress: "Jl. Raya Laban, Kec. Solear, Kabupaten Tangerang, Banten 15730",
+  schoolHeaderContact: "Email: info@smkn14kabtangerang.sch.id &nbsp;&nbsp; Web: smkn14kabtangerang.sch.id",
+  schoolFooterText: "Dokumen ini diterbitkan secara resmi dari Sistem Informasi SI-KAJUR SMK Negeri 14 Kabupaten Tangerang.",
+  googleSheetsApiKey: "",
+  googleDriveApiKey: "",
+  draftTemplates: [
+    {
+      id: "tmpl-standar",
+      name: "Permohonan PKL Standar",
+      subject: "Permohonan Praktek Kerja Lapangan (PKL) DKV - {{STUDENT_NAME}} - {{COMPANY_NAME}}",
+      body: `Kepada Yth.
+Bapak/Ibu HRD {{COMPANY_NAME}}
+Di Tempat
+
+Dengan hormat,
+
+Sehubungan dengan program Praktik Kerja Lapangan (PKL) siswa Kompetensi Keahlian Desain Komunikasi Visual (DKV), kami bermaksud mengajukan permohonan PKL untuk siswa kami:
+
+Nama: {{STUDENT_NAME}}
+NIS: {{STUDENT_NIS}}
+Kelas: {{STUDENT_CLASS}}
+Sekolah: SMK Negeri 14 Kabupaten Tangerang
+
+Siswa tersebut di atas memiliki keahlian utama di bidang:
+{{STUDENT_SKILLS}}
+
+Berikut adalah portofolio karya digital siswa sebagai bahan pertimbangan Bapak/Ibu:
+{{STUDENT_PORTFOLIO}}
+Highlight Portofolio: {{PORTFOLIO_HIGHLIGHT}}
+
+{{CUSTOM_NOTES}}
+
+Kami sangat berharap Bapak/Ibu HRD berkenan menerima anak didik kami untuk menimba ilmu industri kreatif di {{COMPANY_NAME}}. Surat resmi pengantar, CV, beserta pakta integritas siap kami lampirkan.
+
+Atas perhatian dan kerjasama Bapak/Ibu HRD, kami ucapkan terima kasih.
+
+Hormat kami,
+Kepala Program Studi DKV
 {{HEAD_OF_DEPARTMENT}}`
+    },
+    {
+      id: "tmpl-unggulan",
+      name: "Rekomendasi Siswa Unggulan / Berprestasi",
+      subject: "Rekomendasi Khusus Siswa DKV Unggulan - {{STUDENT_NAME}} di {{COMPANY_NAME}}",
+      body: `Kepada Yth.
+Bapak/Ibu Pimpinan / HRD {{COMPANY_NAME}}
+Di Tempat
+
+Dengan hormat,
+
+Melalui surat ini, kami dari Program Studi Desain Komunikasi Visual (DKV) SMK Negeri 14 Kabupaten Tangerang ingin memberikan rekomendasi khusus untuk salah satu siswa berprestasi terbaik kami untuk magang:
+
+Nama: {{STUDENT_NAME}}
+Kelas: {{STUDENT_CLASS}}
+Sekolah: SMK Negeri 14 Kabupaten Tangerang
+
+Siswa bersangkutan memiliki rekam jejak akademis yang solid serta keahlian mendalam di bidang:
+{{STUDENT_SKILLS}}
+
+Sebagai lembar pertimbangan, berikut adalah lampiran karya portofolio digital terpilih siswa:
+{{STUDENT_PORTFOLIO}}
+Deskripsi Kompetensi Unggulan: {{PORTFOLIO_HIGHLIGHT}}
+
+{{CUSTOM_NOTES}}
+
+Kami sangat yakin dedikasi, kedisiplinan, dan gairah kreatif siswa bersangkutan akan memberikan kontribusi nyata yang bernilai tambah bagi operasional tim kreatif {{COMPANY_NAME}}.
+
+Atas bimbingan profesional dan kerjasama luar biasa Bapak/Ibu HRD, kami sampaikan terima kasih.
+
+Hormat kami,
+Kepala Program Studi DKV
+{{HEAD_OF_DEPARTMENT}}`
+    },
+    {
+      id: "tmpl-kemitraan",
+      name: "Penawaran Kemitraan DUDI Baru",
+      subject: "Undangan Kerjasama Kemitraan Praktik Kerja Lapangan (PKL) DKV - {{COMPANY_NAME}}",
+      body: `Kepada Yth.
+Bapak/Ibu Pimpinan / HRD {{COMPANY_NAME}}
+Di Tempat
+
+Dengan hormat,
+
+Hubungan sinergis antara instansi pendidikan vokasi nasional dengan dunia usaha dan dunia industri (DUDI) merupakan pilar utama dalam mencetak talenta muda kreatif yang kompeten dan siap bersaing.
+
+Oleh karena itu, kami dari SMK Negeri 14 Kabupaten Tangerang bermaksud menjajaki peluang kerjasama kemitraan PKL dengan {{COMPANY_NAME}}. Sebagai langkah awal, kami mengajukan usulan penempatan siswa terbaik kami:
+
+Nama: {{STUDENT_NAME}} (Kelas {{STUDENT_CLASS}})
+Sektor Keahlian:
+{{STUDENT_SKILLS}}
+Portofolio Digital: {{STUDENT_PORTFOLIO}}
+
+{{CUSTOM_NOTES}}
+
+Kami percaya bahwa kemitraan strategis ini akan memberikan kontribusi positif bagi kedua belah pihak. Diskusi lanjutan terkait MoU dan rencana detail penempatan dapat kami laksanakan sesuai waktu luang Bapak/Ibu.
+
+Atas waktu, kesediaan, dan atensi luar biasa dari Bapak/Ibu Pimpinan, kami ucapkan banyak terima kasih.
+
+Hormat kami,
+Kepala Program Studi DKV
+{{HEAD_OF_DEPARTMENT}}`
+    },
+    {
+      id: "tmpl-followup",
+      name: "Follow-Up Pengajuan Proposal",
+      subject: "Konfirmasi Kelanjutan Berkas Permohonan PKL Siswa DKV - {{STUDENT_NAME}} - {{COMPANY_NAME}}",
+      body: `Kepada Yth.
+Bapak/Ibu Tim HRD {{COMPANY_NAME}}
+Di Tempat
+
+Dengan hormat,
+
+Menindaklanjuti berkas lamaran dan surat pengantar pengajuan Praktik Kerja Lapangan (PKL) siswa DKV dari SMK Negeri 14 Kabupaten Tangerang yang telah kami kirimkan sebelumnya, kami bermaksud mengonfirmasi kemajuan permohonan tersebut atas nama:
+
+Siswa: {{STUDENT_NAME}}
+Kelas: {{STUDENT_CLASS}}
+Tujuan: {{COMPANY_NAME}}
+
+Portofolio Karya Siswa:
+{{STUDENT_PORTFOLIO}}
+
+{{CUSTOM_NOTES}}
+
+Kira-kira apakah ada informasi tambahan, kebutuhan wawancara daring/luring, atau tes teknis tersendiri yang perlu dipersiapkan oleh siswa kami untuk melengkapi prasyarat penerimaan magang?
+
+Terima kasih banyak atas keramahan, bimbingan, dan kesempatan kemitraan yang diberikan kepada civitas akademika kami.
+
+Hormat kami,
+Kepala Program Studi DKV
+{{HEAD_OF_DEPARTMENT}}`
+    }
+  ],
+  activeDraftTemplateId: "tmpl-standar",
+  themeColor: "#3b82f6"
 };
 
 export const DEFAULT_LOGBOOKS: LogbookEntry[] = [
@@ -324,4 +468,32 @@ export const DEFAULT_LOGBOOKS: LogbookEntry[] = [
     approvedByTeacher: true
   }
 ];
+
+export const DEFAULT_ACTIVITY_LOGS: ActivityLog[] = [
+  {
+    id: "log-act-1",
+    timestamp: "10 Juni 2026, 08:30 WIB",
+    user: "surtiwijaya26@guru.smk.belajar.id",
+    action: "Inisialisasi Database",
+    details: "Basis data awal siswa XII DKV sebanyak 10 siswa dan 5 DUDI mitra berhasil diimpor.",
+    category: "sistem"
+  },
+  {
+    id: "log-act-2",
+    timestamp: "11 Juni 2026, 09:12 WIB",
+    user: "surtiwijaya26@guru.smk.belajar.id",
+    action: "Ubah Kuota Perusahaan",
+    details: "Mengubah kuota target PT. Arise Creative Agency dari 2 menjadi 3 slot.",
+    category: "perusahaan"
+  },
+  {
+    id: "log-act-3",
+    timestamp: "11 Juni 2026, 14:45 WIB",
+    user: "surtiwijaya26@guru.smk.belajar.id",
+    action: "Ubah Status Siswa",
+    details: "Mengubah status Bagas Wijaya (NIS: 232410112) menjadi 'Pending' setelah pengiriman berkas lamaran.",
+    category: "siswa"
+  }
+];
+
 

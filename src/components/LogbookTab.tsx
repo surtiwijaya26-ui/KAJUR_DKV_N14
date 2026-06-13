@@ -13,6 +13,7 @@ import {
   Check, 
   Save, 
   Filter, 
+  Calendar,
   ArrowRight, 
   Sparkles, 
   ExternalLink, 
@@ -23,7 +24,8 @@ import {
   FileCode,
   TrendingUp,
   Cpu,
-  Layers
+  Layers,
+  Brain
 } from "lucide-react";
 
 // Helper function to classify logbook activities into creative DKV categories
@@ -127,6 +129,130 @@ export default function LogbookTab({
   const [categoryFilter, setCategoryFilter] = useState<string>("ALL"); // ALL, or category name
   const [chartMode, setChartMode] = useState<"donut" | "bar">("donut");
 
+  // Advanced filters states
+  const [startDateFilter, setStartDateFilter] = useState<string>("");
+  const [endDateFilter, setEndDateFilter] = useState<string>("");
+  const [isAdvancedFilterOpen, setIsAdvancedFilterOpen] = useState<boolean>(false);
+
+  // AI Logbook Analysis States
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [aiFeedback, setAiFeedback] = useState<{
+    qualityScore: string;
+    summary: string;
+    feedbackBullets: string[];
+    technicalRecommendations: string[];
+    mode?: string;
+  } | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+
+  const handleAnalyzeLogbooks = async (studentIdParam?: string) => {
+    const targetId = studentIdParam || selectedStudentId;
+    const activeStudent = students.find(s => s.id === targetId);
+    if (!activeStudent) {
+      setAnalysisError("Silakan pilih siswa tertentu di menu atas untuk memulai analisis AI harian.");
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setAnalysisError(null);
+    setAiFeedback(null);
+
+    // Filter logbooks belonging to this student
+    const studentLogs = logbooks.filter(l => l.studentId === activeStudent.id);
+
+    try {
+      const resp = await fetch("/api/gemini/analyze-logbook", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          studentName: activeStudent.name,
+          studentClass: activeStudent.className || "XII DKV",
+          logbooks: studentLogs
+        })
+      });
+
+      if (!resp.ok) {
+        throw new Error(`Koneksi server bermasalah (Status: ${resp.status})`);
+      }
+
+      const data = await resp.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      setAiFeedback({
+        qualityScore: data.qualityScore || "Cukup",
+        summary: data.summary || "",
+        feedbackBullets: data.feedbackBullets || [],
+        technicalRecommendations: data.technicalRecommendations || [],
+        mode: data.mode
+      });
+    } catch (err: any) {
+      console.error("Gagal melakukan analisis AI:", err);
+      setAnalysisError(err.message || "Gagal menghubungi layanan kecerdasan buatan.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Automatically reset AI feedback when current student changes, to avoid showing stale advice
+  React.useEffect(() => {
+    setAiFeedback(null);
+    setAnalysisError(null);
+  }, [selectedStudentId]);
+
+  // Presets helper for auditing
+  const setAuditRangePreset = (preset: "this-week" | "last-week" | "this-month" | "clear") => {
+    const today = new Date();
+    if (preset === "clear") {
+      setStartDateFilter("");
+      setEndDateFilter("");
+      return;
+    }
+    
+    const formatDateString = (d: Date): string => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+
+    if (preset === "this-week") {
+      const currentDay = today.getDay();
+      const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+      const monday = new Date(today);
+      monday.setDate(today.getDate() + distanceToMonday);
+      
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      
+      setStartDateFilter(formatDateString(monday));
+      setEndDateFilter(formatDateString(sunday));
+    } else if (preset === "last-week") {
+      const currentDay = today.getDay();
+      const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+      const mondayThisWeek = new Date(today);
+      mondayThisWeek.setDate(today.getDate() + distanceToMonday);
+      
+      const mondayLastWeek = new Date(mondayThisWeek);
+      mondayLastWeek.setDate(mondayThisWeek.getDate() - 7);
+      
+      const sundayLastWeek = new Date(mondayLastWeek);
+      sundayLastWeek.setDate(mondayLastWeek.getDate() + 6);
+      
+      setStartDateFilter(formatDateString(mondayLastWeek));
+      setEndDateFilter(formatDateString(sundayLastWeek));
+    } else if (preset === "this-month") {
+      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+      const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      
+      setStartDateFilter(formatDateString(firstDay));
+      setEndDateFilter(formatDateString(lastDay));
+    }
+  };
+
   // Manual Row Adding & Editing
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
@@ -149,7 +275,7 @@ export default function LogbookTab({
   // Check for saved draft on opening the ADD modal
   React.useEffect(() => {
     if (isFormOpen && !editingLogId) {
-      const saved = localStorage.getItem("pkl_logbook_draft");
+      const saved = sessionStorage.getItem("pkl_logbook_draft");
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
@@ -168,7 +294,7 @@ export default function LogbookTab({
     }
   }, [isFormOpen, editingLogId]);
 
-  // Save changes to localStorage automatically as the student types / changes fields
+  // Save changes to sessionStorage automatically as the student types / changes fields
   React.useEffect(() => {
     if (isFormOpen && !editingLogId) {
       const draft = {
@@ -183,9 +309,9 @@ export default function LogbookTab({
         approvedByDudi: formApprovedByDudi,
         approvedByTeacher: formApprovedByTeacher
       };
-      // Keep in localStorage if there's any non-empty input
+      // Keep in sessionStorage if there's any non-empty input
       if (formStudentId || formActivity || formToolsRaw || formProjectLink || formObstacle || formSolution) {
-        localStorage.setItem("pkl_logbook_draft", JSON.stringify(draft));
+        sessionStorage.setItem("pkl_logbook_draft", JSON.stringify(draft));
       }
     }
   }, [
@@ -205,7 +331,7 @@ export default function LogbookTab({
 
   // Restore draft callback
   const handleRestoreDraft = () => {
-    const saved = localStorage.getItem("pkl_logbook_draft");
+    const saved = sessionStorage.getItem("pkl_logbook_draft");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -229,7 +355,7 @@ export default function LogbookTab({
 
   // Clear draft callback
   const handleClearDraft = () => {
-    localStorage.removeItem("pkl_logbook_draft");
+    sessionStorage.removeItem("pkl_logbook_draft");
     setDraftExists(false);
   };
 
@@ -446,7 +572,7 @@ export default function LogbookTab({
 
     setIsFormOpen(false);
     setEditingLogId(null);
-    localStorage.removeItem("pkl_logbook_draft");
+    sessionStorage.removeItem("pkl_logbook_draft");
     setDraftExists(false);
   };
 
@@ -507,7 +633,17 @@ export default function LogbookTab({
       matchesApproval = !log.approvedByTeacher;
     }
 
-    const matchesDate = !dateFilter || log.date === dateFilter;
+    const matchesSingleDate = !dateFilter || log.date === dateFilter;
+    
+    let matchesDateRange = true;
+    if (startDateFilter && log.date < startDateFilter) {
+      matchesDateRange = false;
+    }
+    if (endDateFilter && log.date > endDateFilter) {
+      matchesDateRange = false;
+    }
+
+    const matchesDate = matchesSingleDate && matchesDateRange;
     const matchesCategory = categoryFilter === "ALL" || classifyActivity(log.activity, log.toolsUsed) === categoryFilter;
 
     return matchesStudent && matchesSearch && matchesApproval && matchesDate && matchesCategory;
@@ -957,6 +1093,250 @@ export default function LogbookTab({
         )}
       </div>
 
+      {/* AI Logbook Analysis & Feedback Widget */}
+      <div className="glass-panel p-6 rounded-2xl border border-white/5 bg-slate-900/30 relative overflow-hidden animate-fade-in mb-6" id="logbook-ai-feedback-widget">
+        <div className="absolute top-0 right-0 w-96 h-32 bg-indigo-500/5 blur-[80px] pointer-events-none rounded-full" />
+        
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-4 border-b border-white/5 mb-5">
+          <div className="flex items-center gap-2.5">
+            <div className="bg-gradient-to-tr from-indigo-500 to-purple-500 p-2 rounded-xl text-white shadow-lg shadow-indigo-500/20">
+              <Sparkles className="w-5 h-5 animate-pulse" />
+            </div>
+            <div className="space-y-0.5 font-sans">
+              <h4 className="font-display font-black text-xs text-white uppercase tracking-wider">
+                Analisis Kinerja & Asistensi Umpan Balik AI Gemini
+              </h4>
+              <p className="text-white/50 text-[11px]">
+                Menganalisis kualitas deskripsi tugas harian, software, kendala, dan memberikan feedback penulisan jurnal otomatis.
+              </p>
+            </div>
+          </div>
+          
+          {selectedStudentId !== "ALL" && (
+            <button
+              type="button"
+              disabled={isAnalyzing}
+              onClick={() => handleAnalyzeLogbooks()}
+              className="bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-550 hover:to-indigo-450 disabled:from-indigo-900 disabled:to-indigo-950 text-white font-extrabold text-[11px] px-4 py-2.5 rounded-xl transition shadow-lg shadow-indigo-500/15 flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+            >
+              {isAnalyzing ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Mengerjakan Analisis Klasifikasi...
+                </>
+              ) : (
+                <>
+                  <Cpu className="w-3.5 h-3.5" />
+                  Analisis Logbook Sekarang
+                </>
+              )}
+            </button>
+          )}
+        </div>
+
+        {/* Display Content based on State */}
+        {selectedStudentId === "ALL" ? (
+          <div className="p-4.5 bg-slate-950/40 rounded-xl border border-white/5 flex flex-col md:flex-row items-start md:items-center gap-4 text-xs font-sans">
+            <div className="p-3 bg-indigo-500/10 rounded-xl text-indigo-400">
+              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            </div>
+            <div className="space-y-2 flex-grow">
+              <p className="font-bold text-slate-200">Ingin Menelaah Logbook dengan Asistensi AI?</p>
+              <p className="text-white/50 text-[11px] leading-relaxed max-w-2xl">
+                Silakan pilih satu siswa aktif melalui menu dropdown pilihan siswa di atas untuk melihat ringkasan, analisis detail, dan draf umpan balik otomatis yang siap Anda sampaikan demi meningkatkan kualitas laporannya.
+              </p>
+              
+              {/* Shortcut buttons to quick-select students who have logs */}
+              {students.filter(s => s.status === "Ongoing").slice(0, 4).length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <span className="text-[10px] text-slate-500 font-medium">Beralih cepat:</span>
+                  {students
+                    .filter(s => s.status === "Ongoing")
+                    .slice(0, 4)
+                    .map(s => (
+                      <button
+                        type="button"
+                        key={s.id}
+                        onClick={() => setSelectedStudentId(s.id)}
+                        className="bg-white/5 hover:bg-white/10 text-white/70 px-2.5 py-1 rounded-lg text-[10px] font-semibold border border-white/5 transition cursor-pointer"
+                      >
+                        {s.name.split(" ")[0]} ({s.className})
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4 font-sans">
+            
+            {/* Connection error */}
+            {analysisError && (
+              <div className="p-4 bg-rose-500/10 border border-rose-500/25 rounded-xl flex items-start gap-2.5 text-xs text-rose-300">
+                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-rose-400" />
+                <div className="space-y-0.5">
+                  <p className="font-bold">Gagal Menganalisis Logbook</p>
+                  <p className="text-white/60 text-[11px]">{analysisError}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Default state when not analyzed yet */}
+            {!isAnalyzing && !aiFeedback && (
+              <div className="text-center py-6 border border-dashed border-white/10 rounded-xl space-y-2.5 max-w-lg mx-auto bg-slate-950/20">
+                <Brain className="w-8 h-8 text-indigo-400/40 mx-auto" />
+                <div className="space-y-1">
+                  <p className="text-slate-350 font-bold text-xs">Analisis Siap Dimulai</p>
+                  <p className="text-white/40 text-[10.5px] max-w-sm mx-auto leading-relaxed px-4">
+                    AI Gemini akan mencermati {logbooks.filter(l => l.studentId === selectedStudentId).length} entri jurnalan harian milik {students.find(s => s.id === selectedStudentId)?.name || "siswa tersebut"} dan merumuskan umpan balik penyempurnaan kualitas laporan.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleAnalyzeLogbooks()}
+                  className="bg-white/5 hover:bg-white/10 border border-white/10 active:scale-95 text-white text-[10.5px] font-bold px-3.5 py-1.5 rounded-lg transition cursor-pointer"
+                >
+                  Mulai Analisis Sekarang
+                </button>
+              </div>
+            )}
+
+            {/* Loading Anim */}
+            {isAnalyzing && (
+              <div className="p-6 bg-slate-950/40 rounded-xl border border-white/5 space-y-4 animate-pulse">
+                <div className="flex items-center gap-3">
+                  <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-xs font-bold text-indigo-300">Menjalankan mesin penelaah Gemini-3.5-flash...</span>
+                </div>
+                <div className="space-y-2">
+                  <div className="h-4.5 bg-white/5 rounded-lg w-3/4" />
+                  <div className="h-3.5 bg-white/5 rounded-lg w-full" />
+                  <div className="h-3.5 bg-white/5 rounded-lg w-5/6" />
+                </div>
+              </div>
+            )}
+
+            {/* AI Feedback Results Card */}
+            {aiFeedback && (
+              <div className="space-y-4 animate-fade-in">
+                
+                {/* Upper row: score and general assessment */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                  
+                  {/* Score badge box */}
+                  <div className="lg:col-span-4 p-4.5 bg-slate-950/60 rounded-xl border border-white/5 flex flex-col justify-between items-center text-center">
+                    <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black font-sans">Kualitas Lapor Jurnal</span>
+                    
+                    <div className="my-2.5">
+                      {aiFeedback.qualityScore === "Sangat Baik" && (
+                        <span className="bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-black text-xs px-4 py-2 rounded-full shadow-lg shadow-emerald-500/5">
+                          ✨ Sangat Baik
+                        </span>
+                      )}
+                      {aiFeedback.qualityScore === "Baik" && (
+                        <span className="bg-teal-500/15 text-teal-400 border border-teal-500/30 font-black text-xs px-4 py-2 rounded-full">
+                          ⭐ Baik
+                        </span>
+                      )}
+                      {aiFeedback.qualityScore === "Cukup" && (
+                        <span className="bg-amber-500/15 text-amber-400 border border-amber-500/30 font-black text-xs px-4 py-2 rounded-full">
+                          ⚠️ Cukup
+                        </span>
+                      )}
+                      {aiFeedback.qualityScore === "Kurang Detail" && (
+                        <span className="bg-rose-500/15 text-rose-400 border border-rose-500/30 font-black text-xs px-4 py-2 rounded-full shadow-lg shadow-rose-500/10 animate-pulse">
+                          🚨 Kurang Detail
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="text-[10px] text-slate-400 leading-normal font-sans pt-1">
+                      Dinilai dari kelengkapan deskripsi proyek, tools kreatif, kendala teknis, dan solusi taktis.
+                    </p>
+                  </div>
+
+                  {/* Summary evaluation description */}
+                  <div className="lg:col-span-8 p-4.5 bg-slate-950/40 rounded-xl border border-white/5 flex flex-col justify-between">
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-indigo-400 uppercase tracking-wider font-extrabold font-sans">Penilaian Evaluatif Komprehensif</span>
+                      <p className="text-white/80 text-[11px] leading-relaxed">
+                        {aiFeedback.summary}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[9.5px] text-slate-500 pt-2 border-t border-white/[0.04]">
+                      <span>Asistensi Monitoring Kurikulum DKV</span>
+                      <span className="font-mono text-indigo-300 text-[10px] font-semibold bg-indigo-500/10 px-2 py-0.5 rounded-md border border-indigo-500/15 uppercase">
+                        {aiFeedback.mode || "Gemini Core Mode"}
+                      </span>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Sub row: Bullets & Suggestions */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  
+                  {/* Student recommendations bullets */}
+                  <div className="p-4.5 bg-indigo-500/[0.02] border border-indigo-500/10 rounded-xl space-y-3">
+                    <h5 className="text-[10.5px] font-black text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                      3 Rekomendasi Umpan Balik Siswa (Untuk Penulisan)
+                    </h5>
+                    
+                    <ul className="space-y-2 text-[11px] text-slate-300 leading-normal pl-1 list-none">
+                      {aiFeedback.feedbackBullets.map((bullet, idx) => (
+                        <li key={idx} className="flex gap-2">
+                          <span className="text-indigo-400 font-bold font-mono">#{idx + 1}</span>
+                          <span className="text-white/80">{bullet}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {/* Technical suggestions */}
+                  <div className="p-4.5 bg-purple-500/[0.02] border border-purple-500/10 rounded-xl space-y-3">
+                    <h5 className="text-[10.5px] font-black text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                      Rekomendasi Teknik & Eksplorasi DKV Siswa
+                    </h5>
+                    
+                    <ul className="space-y-2 text-[11px] text-slate-300 leading-normal pl-1 list-none">
+                      {aiFeedback.technicalRecommendations.map((rec, idx) => (
+                        <li key={idx} className="flex gap-2">
+                          <span className="text-purple-400 font-bold font-mono">✎</span>
+                          <span className="text-white/80 italic">{rec}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                </div>
+
+                {/* Quick utility block to copy notes */}
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const text = `Siswa: ${students.find(s => s.id === selectedStudentId)?.name || ""}\nEvaluasi Logbook: ${aiFeedback.summary}\n\nSaran Perbaikan:\n` + aiFeedback.feedbackBullets.map((b, i) => `${i+1}. ${b}`).join("\n");
+                      navigator.clipboard.writeText(text);
+                      alert("Draf catatan umpan balik AI berhasil disalin! Silakan tempelkan langsung ke kolom komentar laporan.");
+                    }}
+                    className="bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 text-[10px] font-black px-3.5 py-2 rounded-xl cursor-pointer transition flex items-center gap-1.5"
+                  >
+                    <Clipboard className="w-3.5 h-3.5" />
+                    Salin Analisis & Umpan Balik
+                  </button>
+                </div>
+
+              </div>
+            )}
+
+          </div>
+        )}
+
+      </div>
+
       {/* Toolbar Options Filters */}
       <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4 font-sans bg-slate-900/25 p-4 rounded-2xl border border-white/5" id="logbook-toolbar">
         
@@ -996,12 +1376,14 @@ export default function LogbookTab({
           </div>
 
           {/* Quick Clear Filter if any is active */}
-          {(searchTerm || dateFilter || approvalFilter !== "ALL" || categoryFilter !== "ALL") && (
+          {(searchTerm || dateFilter || approvalFilter !== "ALL" || categoryFilter !== "ALL" || startDateFilter || endDateFilter) && (
             <button
               type="button"
               onClick={() => {
                 setSearchTerm("");
                 setDateFilter("");
+                setStartDateFilter("");
+                setEndDateFilter("");
                 setApprovalFilter("ALL");
                 setCategoryFilter("ALL");
               }}
@@ -1015,6 +1397,23 @@ export default function LogbookTab({
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-end">
           
+          <button
+            type="button"
+            id="btn-advanced-filter-toggle"
+            onClick={() => setIsAdvancedFilterOpen(!isAdvancedFilterOpen)}
+            className={`p-2.5 rounded-xl text-[11px] font-bold border transition duration-200 cursor-pointer flex items-center gap-1.5 ${
+              isAdvancedFilterOpen || categoryFilter !== "ALL" || startDateFilter || endDateFilter
+                ? "bg-indigo-600/20 border-indigo-500/50 text-indigo-400"
+                : "bg-[#0f0f1c]/80 border-white/10 text-slate-300 hover:bg-[#0f0f1c]"
+            }`}
+          >
+            <Filter className="w-3.5 h-3.5" />
+            Filter Lanjutan
+            {(categoryFilter !== "ALL" || startDateFilter || endDateFilter) && (
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+            )}
+          </button>
+
           <select
             value={approvalFilter}
             onChange={(e) => setApprovalFilter(e.target.value)}
@@ -1056,6 +1455,168 @@ export default function LogbookTab({
 
         </div>
       </div>
+
+      {/* Advanced Filter Panel */}
+      {isAdvancedFilterOpen && (
+        <div className="glass-panel p-5 rounded-2xl border border-indigo-500/30 bg-[#0c0d1b]/85 font-sans space-y-4 animate-fade-in" id="logbook-advanced-filters">
+          <div className="flex items-center justify-between border-b border-white/5 pb-2">
+            <h4 className="font-display font-bold text-xs text-indigo-400 flex items-center gap-1.5 uppercase tracking-wider">
+              <Calendar className="w-4 h-4 text-indigo-400" />
+              Saringan Audit & Rentang Tanggal Mingguan
+            </h4>
+            <button 
+              type="button"
+              onClick={() => setIsAdvancedFilterOpen(false)}
+              className="text-white/40 hover:text-white transition"
+              title="Sembunyikan panel"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+            {/* Column 1: Categories */}
+            <div className="md:col-span-5 space-y-2">
+              <label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">
+                Kategori Bidang Karya DKV
+              </label>
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                className="w-full p-2.5 bg-slate-950 border border-white/10 focus:border-indigo-500 rounded-xl text-xs text-white outline-none cursor-pointer font-sans"
+              >
+                <option value="ALL">🌟 Semua Kategori Bidang Karya DKV</option>
+                <option value="UI/UX & Web Design">🎨 UI/UX & Web Design (Figma, Slicing)</option>
+                <option value="Video & Motion Editing">🎬 Video & Motion Editing (Premiere, AE)</option>
+                <option value="Graphic Design & Branding">✏️ Graphic Design & Branding (Branding, Corel)</option>
+                <option value="Photography & Cameraman">📷 Photography & Cameraman (DSLR, Lensa)</option>
+                <option value="Illustration & Digital Art">🖌️ Illustration & Digital Art (Drawing, Sketch)</option>
+              </select>
+              <p className="text-[10px] text-white/40 leading-relaxed">
+                Klasifikasi cerdas otomatis disesuaikan berdasarkan isi deksripsi aktivitas harian siswa.
+              </p>
+            </div>
+
+            {/* Column 2: Date Selector Range */}
+            <div className="md:col-span-7 space-y-4">
+              <label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">
+                Rentang Tanggal Audit Khusus (Mulai s.d Selesai)
+              </label>
+              
+              <div className="flex flex-col sm:flex-row items-center gap-3">
+                <div className="relative w-full flex items-center bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-slate-300">
+                  <span className="text-[10px] font-bold text-indigo-400 select-none uppercase tracking-wider mr-2 whitespace-nowrap">Mulai:</span>
+                  <input
+                    type="date"
+                    value={startDateFilter}
+                    onChange={(e) => setStartDateFilter(e.target.value)}
+                    className="bg-transparent border-none p-0 focus:ring-0 outline-none text-white text-xs w-full cursor-pointer font-sans"
+                  />
+                  {startDateFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setStartDateFilter("")}
+                      className="text-slate-400 hover:text-white ml-1.5"
+                      title="Reset tanggal mulai"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="text-white/40 text-xs hidden sm:block">sampai</div>
+
+                <div className="relative w-full flex items-center bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-slate-300">
+                  <span className="text-[10px] font-bold text-indigo-400 select-none uppercase tracking-wider mr-2 whitespace-nowrap">Akhir:</span>
+                  <input
+                    type="date"
+                    value={endDateFilter}
+                    onChange={(e) => setEndDateFilter(e.target.value)}
+                    className="bg-transparent border-none p-0 focus:ring-0 outline-none text-white text-xs w-full cursor-pointer font-sans"
+                  />
+                  {endDateFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setEndDateFilter("")}
+                      className="text-slate-400 hover:text-white ml-1.5"
+                      title="Reset tanggal akhir"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Quick Presets row */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[9px] text-white/40 block mr-1 font-sans font-bold">Pintas Pengawasan:</span>
+                <button
+                  type="button"
+                  onClick={() => setAuditRangePreset("this-week")}
+                  className="bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 rounded-lg px-2.5 py-1 text-[10px] font-bold transition cursor-pointer"
+                >
+                  Minggu Ini
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuditRangePreset("last-week")}
+                  className="bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 rounded-lg px-2.5 py-1 text-[10px] font-bold transition cursor-pointer"
+                >
+                  Minggu Lalu
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuditRangePreset("this-month")}
+                  className="bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 rounded-lg px-2.5 py-1 text-[10px] font-bold transition cursor-pointer"
+                >
+                  Bulan Ini
+                </button>
+                {(startDateFilter || endDateFilter) && (
+                  <button
+                    type="button"
+                    onClick={() => setAuditRangePreset("clear")}
+                    className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-450 border border-rose-500/25 rounded-lg px-2.5 py-1 text-[10px] font-bold transition cursor-pointer"
+                  >
+                    Setel Ulang Laporan
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Active Status Check of Audit filters */}
+          <div className="flex items-center gap-2 border-t border-white/5 pt-3.5 mt-1 text-[10.5px]">
+            <span className="text-white/40">Status Saringan Audit:</span>
+            {categoryFilter !== "ALL" || startDateFilter || endDateFilter ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {categoryFilter !== "ALL" && (
+                  <span className="bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 px-2 py-0.5 rounded font-bold">
+                    Bidang: {categoryFilter}
+                  </span>
+                )}
+                {(startDateFilter || endDateFilter) && (
+                  <span className="bg-amber-500/15 border border-amber-500/30 text-amber-300 px-2 py-0.5 rounded font-mono font-bold">
+                    Tanggal: {startDateFilter || "*"} s.d {endDateFilter || "*"}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCategoryFilter("ALL");
+                    setStartDateFilter("");
+                    setEndDateFilter("");
+                  }}
+                  className="text-rose-450 hover:text-rose-400 font-extrabold hover:underline ml-1 cursor-pointer font-sans"
+                >
+                  Reset Semua
+                </button>
+              </div>
+            ) : (
+              <span className="text-slate-500 font-medium font-sans">Belum ada saringan audit khusus terpilih.</span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Interactive Sheet Parser Form for copy pasting */}
       {isBulkOpen && (

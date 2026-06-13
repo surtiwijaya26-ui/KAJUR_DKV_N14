@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Student, Company, AppSettings, LogbookEntry } from "../types";
+import GoogleDriveSync from "./GoogleDriveSync";
 import { 
   Printer, 
   Settings, 
@@ -783,6 +784,17 @@ export default function LettersTab({
                 <Printer className="w-3.5 h-3.5" />
                 Cetak Langsung (PDF)
               </button>
+            </div>
+
+            {/* Google Drive Integration Panel */}
+            <div className="pt-2">
+              <GoogleDriveSync
+                activeStudent={activeStudent}
+                companies={companies}
+                settings={settings}
+                activeLetterType={activeLetterType}
+                logbooks={logbooks}
+              />
             </div>
           </div>
         </div>

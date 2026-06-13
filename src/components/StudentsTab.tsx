@@ -41,11 +41,37 @@ import {
   GraduationCap,
   Calendar,
   Award,
+  Printer,
   Zap,
   CheckCircle,
   HelpCircle,
-  Send
+  Send,
+  Phone,
+  MessageSquare,
+  Share2
 } from "lucide-react";
+
+const highlightText = (text: string, highlight: string) => {
+  if (!highlight.trim()) {
+    return <span>{text}</span>;
+  }
+  const escaped = highlight.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escaped})`, "gi");
+  const parts = text.split(regex);
+  return (
+    <span>
+      {parts.map((part, i) =>
+        part.toLowerCase() === highlight.toLowerCase() ? (
+          <mark key={i} className="bg-amber-500/35 text-amber-200 font-extrabold rounded-sm px-0.5 border border-amber-500/20 shadow-sm shadow-amber-500/20 pb-0.5">
+            {part}
+          </mark>
+        ) : (
+          part
+        )
+      )}
+    </span>
+  );
+};
 
 interface StudentsTabProps {
   students: Student[];
@@ -70,7 +96,35 @@ export default function StudentsTab({
   const [classFilter, setClassFilter] = useState<string>("ALL");
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [viewingStudent, setViewingStudent] = useState<Student | null>(null);
+  const [activeCertificateStudent, setActiveCertificateStudent] = useState<Student | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+
+  // Certificate Generator Workstation States
+  const [certNo, setCertNo] = useState("14.08/SMK14/DKV/PKL/2026");
+  const [certDate, setCertDate] = useState("");
+  const [certSchoolSigner, setCertSchoolSigner] = useState("Surti Wijaya, S.Kom., Gr.");
+  const [certSchoolTitle, setCertSchoolTitle] = useState("Kepala Program Studi DKV");
+  const [certNip, setCertNip] = useState("19851012 201103 2 001");
+  const [certIndustrySigner, setCertIndustrySigner] = useState("Rian Prasetya, S.Ds.");
+  const [certIndustryTitle, setCertIndustryTitle] = useState("Lead Graphic Designer");
+  const [certDuration, setCertDuration] = useState("20 Januari - 20 Juni 2026");
+  const [certTheme, setCertTheme] = useState<'navy' | 'maroon' | 'gold'>('navy');
+
+  useEffect(() => {
+    if (activeCertificateStudent) {
+      setCertNo(`14.08/SMK14/DKV/PKL/${activeCertificateStudent.nis}/2026`);
+      setCertDate(new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }));
+      
+      const comp = companies.find(c => c.id === activeCertificateStudent.companyId);
+      if (comp) {
+        setCertIndustrySigner(comp.contactPerson || "Bpk/Ibu Pembimbing Lapangan");
+        setCertIndustryTitle("Pembimbing Lapangan DUDI");
+      } else {
+        setCertIndustrySigner("Bpk/Ibu Pembimbing Lapangan");
+        setCertIndustryTitle("Penyunting Kreatif Industri");
+      }
+    }
+  }, [activeCertificateStudent, companies]);
 
   // Added PKL Helper states (Roles, Tabs, and Core Lists) - Anti-Gagal Local Persistence
   const [userRole, setUserRole] = useState<'Guru' | 'Siswa'>(() => {
@@ -348,32 +402,80 @@ export default function StudentsTab({
     setSelectedStudentIds([]);
   };
 
+  const handleBulkDelete = () => {
+    if (confirm(`Apakah Anda yakin ingin menghapus ${selectedStudentIds.length} siswa terpilih dari database? Tindakan ini tidak dapat dibatalkan.`)) {
+      selectedStudentIds.forEach(id => {
+        onDeleteStudent(id);
+      });
+      // Clear selection
+      setSelectedStudentIds([]);
+      setSelectedStudent(null);
+      setViewingStudent(null);
+    }
+  };
+
   // Modal / Form standard control states
-  const [isAddOpen, setIsAddOpen] = useState(false);
-  const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
+  const [isAddOpen, setIsAddOpen] = useState(() => {
+    return sessionStorage.getItem("pkl_student_form_isAddOpen") === "true";
+  });
+  const [editingStudentId, setEditingStudentId] = useState<string | null>(() => {
+    return sessionStorage.getItem("pkl_student_form_editingStudentId") || null;
+  });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [isBulkOpen, setIsBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [formError, setFormError] = useState("");
   const [importSuccessCount, setImportSuccessCount] = useState<number | null>(null);
 
+  // Quick Contact States
+  const [copiedContactsStatus, setCopiedContactsStatus] = useState<string | null>(null);
+  const [broadcastTemplate, setBroadcastTemplate] = useState(
+    "Yth. Orang tua & Siswa SMK,\n\n" +
+    "Berikut informasi perkembangan pelaksanaan Praktik Kerja Lapangan (PKL) Siswa:\n" +
+    "Mohon untuk selalu memantau jurnal logbook harian di aplikasi SimPKL dan memastikan kehadiran tepat waktu di perusahaan mitra.\n\n" +
+    "Salam hangat,\n" +
+    "Hubungan Industri (Hubin)"
+  );
+  const [contactSearch, setContactSearch] = useState("");
+
   // Form Field States
-  const [newStudent, setNewStudent] = useState({
-    name: "",
-    nis: "",
-    className: "XII DKV 1",
-    companyId: companies[0]?.id || "",
-    skills: "Desain Grafis, After Effects",
-    portfolioUrl: "behance.net/username",
-    portfolioHighlight: "Project Desain Logo UMKM",
-    phone: "081234567800",
-    email: "siswa@smkn1teluknaga.sch.id",
-    status: "Unassigned" as StudentStatus,
-    parentName: "",
-    parentOccupation: "",
-    studentAddress: "",
-    birthPlaceDate: "Tangerang, 10 Juni 2008"
+  const [newStudent, setNewStudent] = useState(() => {
+    const saved = sessionStorage.getItem("pkl_student_form_newStudent");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return {
+      name: "",
+      nis: "",
+      className: "XII DKV 1",
+      companyId: companies[0]?.id || "",
+      skills: "Desain Grafis, After Effects",
+      portfolioUrl: "behance.net/username",
+      portfolioHighlight: "Project Desain Logo UMKM",
+      phone: "081234567800",
+      email: "siswa@smkn1teluknaga.sch.id",
+      status: "Unassigned" as StudentStatus,
+      parentName: "",
+      parentOccupation: "",
+      studentAddress: "",
+      birthPlaceDate: "Tangerang, 10 Juni 2008"
+    };
   });
+
+  // Auto-save form inputs in StudentsTab to sessionStorage
+  useEffect(() => {
+    if (isAddOpen) {
+      sessionStorage.setItem("pkl_student_form_isAddOpen", "true");
+      sessionStorage.setItem("pkl_student_form_editingStudentId", editingStudentId || "");
+      sessionStorage.setItem("pkl_student_form_newStudent", JSON.stringify(newStudent));
+    } else {
+      sessionStorage.removeItem("pkl_student_form_isAddOpen");
+      sessionStorage.removeItem("pkl_student_form_editingStudentId");
+      sessionStorage.removeItem("pkl_student_form_newStudent");
+    }
+  }, [isAddOpen, editingStudentId, newStudent]);
 
   const COMMON_DKV_SKILLS = [
     "UI/UX Design",
@@ -649,16 +751,74 @@ export default function StudentsTab({
     document.body.removeChild(link);
   };
 
+  const handleDownloadPng = () => {
+    const svgElement = document.getElementById("certificate-svg");
+    if (!svgElement) return;
+
+    const svgString = new XMLSerializer().serializeToString(svgElement);
+    const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+    const blobURL = URL.createObjectURL(svgBlob);
+    
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 2000;
+      canvas.height = 1400;
+      const context = canvas.getContext("2d");
+      if (context) {
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        
+        try {
+          const pngDataUrl = canvas.toDataURL("image/png");
+          const downloadLink = document.createElement("a");
+          downloadLink.href = pngDataUrl;
+          downloadLink.download = `Sertifikat_PKL_DKV_${activeCertificateStudent?.name?.replace(/\s+/g, "_") || "Siswa"}.png`;
+          document.body.appendChild(downloadLink);
+          downloadLink.click();
+          document.body.removeChild(downloadLink);
+        } catch (err) {
+          console.error("Canvas export failed:", err);
+        }
+      }
+      URL.revokeObjectURL(blobURL);
+    };
+    image.src = blobURL;
+  };
+
   const getStatusBadge = (status: StudentStatus) => {
     switch (status) {
       case "Unassigned":
-        return <span className="bg-rose-100 text-rose-700 font-medium text-[10px] px-2.5 py-1 rounded-full border border-rose-200">Belum PKL</span>;
+        return (
+          <span className="bg-rose-500/10 text-rose-300 border border-rose-500/25 px-2.5 py-1 rounded-full font-bold text-[10px] tracking-wide inline-flex items-center gap-1.5 shadow-sm">
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0" />
+            Belum PKL
+          </span>
+        );
       case "Pending":
-        return <span className="bg-amber-100 text-amber-700 font-medium text-[10px] px-2.5 py-1 rounded-full border border-amber-200 animate-pulse">Menunggu HRD</span>;
+        return (
+          <span className="bg-amber-500/10 text-amber-300 border border-amber-500/25 px-2.5 py-1 rounded-full font-bold text-[10px] tracking-wide inline-flex items-center gap-1.5 shadow-sm animate-pulse">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 animate-ping absolute duration-1000" />
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 relative" />
+            Menunggu HRD
+          </span>
+        );
       case "Ongoing":
-        return <span className="bg-cyan-100 text-cyan-700 font-medium text-[10px] px-2.5 py-1 rounded-full border border-cyan-200">Sedang PKL</span>;
+        return (
+          <span className="bg-emerald-500/10 text-emerald-300 border border-emerald-500/25 px-2.5 py-1 rounded-full font-bold text-[10px] tracking-wide inline-flex items-center gap-1.5 shadow-sm">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 animate-ping absolute duration-1000" />
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 relative" />
+            Sedang PKL
+          </span>
+        );
       case "Completed":
-        return <span className="bg-emerald-100 text-emerald-700 font-medium text-[10px] px-2.5 py-1 rounded-full border border-emerald-200">Selesai PKL</span>;
+        return (
+          <span className="bg-teal-500/10 text-teal-300 border border-teal-500/25 px-2.5 py-1 rounded-full font-bold text-[10px] tracking-wide inline-flex items-center gap-1.5 shadow-sm">
+            <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shrink-0" />
+            Selesai PKL
+          </span>
+        );
     }
   };
 
@@ -862,42 +1022,61 @@ export default function StudentsTab({
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-blue-400 animate-ping"></span>
                 <span className="text-xs font-semibold text-white">
-                  Terpilih <span className="text-blue-300 font-bold">{selectedStudentIds.length}</span> siswa PKV untuk aksi massal:
+                  Terpilih <span className="text-blue-300 font-extrabold">{selectedStudentIds.length}</span> siswa PKV untuk aksi massal:
                 </span>
               </div>
               <div className="flex gap-2 flex-wrap items-center">
                 <button
                   type="button"
                   onClick={() => handleBulkStatusUpdate("Unassigned")}
-                  className="bg-white/5 border border-white/10 hover:bg-white/10 text-rose-300 font-semibold text-[10px] px-2.5 py-1.5 rounded cursor-pointer transition-all"
+                  className="bg-white/5 border border-white/10 hover:bg-white/10 text-rose-300 hover:text-rose-200 font-semibold text-[10px] px-2.5 py-1.5 rounded cursor-pointer transition-all flex items-center gap-1"
                   id="bulk-set-unassigned"
+                  title="Ubah status ke Belum PKL"
                 >
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
                   Belum PKL
                 </button>
                 <button
                   type="button"
                   onClick={() => handleBulkStatusUpdate("Pending")}
-                  className="bg-white/5 border border-white/10 hover:bg-white/10 text-amber-300 font-semibold text-[10px] px-2.5 py-1.5 rounded cursor-pointer transition-all"
+                  className="bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 font-extrabold text-[10.5px] px-3 py-1.5 rounded cursor-pointer transition-all flex items-center gap-1.5 shadow-sm"
                   id="bulk-set-pending"
+                  title="Ubah status ke Menunggu HRD (Pending)"
                 >
-                  Menunggu HRD
+                  <Clock className="w-3.5 h-3.5 animate-pulse text-amber-400" />
+                  Ubah Status ke Pending
                 </button>
                 <button
                   type="button"
                   onClick={() => handleBulkStatusUpdate("Ongoing")}
-                  className="bg-white/5 border border-white/10 hover:bg-white/10 text-cyan-300 font-semibold text-[10px] px-2.5 py-1.5 rounded cursor-pointer transition-all"
+                  className="bg-white/5 border border-white/10 hover:bg-white/10 text-cyan-300 hover:text-cyan-200 font-semibold text-[10px] px-2.5 py-1.5 rounded cursor-pointer transition-all flex items-center gap-1"
                   id="bulk-set-ongoing"
+                  title="Ubah status ke Sedang PKL"
                 >
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
                   Sedang PKL
                 </button>
                 <button
                   type="button"
                   onClick={() => handleBulkStatusUpdate("Completed")}
-                  className="bg-blue-600 hover:bg-blue-500 text-white font-semibold text-[10px] px-2.5 py-1.5 rounded shadow-lg shadow-blue-500/20 cursor-pointer transition-all"
+                  className="bg-blue-600 hover:bg-blue-500 text-white font-semibold text-[10px] px-2.5 py-1.5 rounded shadow-lg shadow-blue-500/20 cursor-pointer transition-all flex items-center gap-1"
                   id="bulk-set-completed"
+                  title="Ubah status ke Selesai PKL"
                 >
+                  <Check className="w-3 h-3" />
                   Selesai PKL
                 </button>
+                <button
+                  type="button"
+                  onClick={handleBulkDelete}
+                  className="bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 hover:border-rose-500/50 font-extrabold text-[10.5px] px-3 py-1.5 rounded transition-all flex items-center gap-1.5 shadow-lg shadow-rose-500/5"
+                  id="bulk-delete-action"
+                  title="Hapus siswa terpilih secara massal"
+                >
+                  <Trash2 className="w-3.5 h-3.5 shrink-0 text-rose-400 group-hover:text-white" />
+                  Hapus Siswa Terpilih
+                </button>
+                <span className="text-white/20 px-1 font-mono">|</span>
                 <button
                   type="button"
                   onClick={() => setSelectedStudentIds([])}
@@ -906,6 +1085,189 @@ export default function StudentsTab({
                 >
                   Batal
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* Quick Contact & WA Broadcast Panel */}
+          {selectedStudentIds.length > 0 && (
+            <div className="glass-panel p-5 rounded-xl border border-white/10 bg-slate-900/40 space-y-4 shadow-xl animate-fade-in mt-3 mb-4" id="quick-contact-panel">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
+                    <Phone className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                      Quick Contact & Broadcast WhatsApp (Terpilih {students.filter(s => selectedStudentIds.includes(s.id)).length} Siswa)
+                    </h4>
+                    <p className="text-[10px] text-white/40">
+                      Kelola daftar kontak & salin format pengumuman massal untuk grup/siaran WhatsApp
+                    </p>
+                  </div>
+                </div>
+                {copiedContactsStatus && (
+                  <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-bold px-2.5 py-1 rounded-full border border-emerald-500/30 animate-pulse">
+                    {copiedContactsStatus}
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                {/* Left side: List of selected students contact details */}
+                <div className="lg:col-span-5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-white/50 uppercase tracking-wider">Daftar Kontak Terpilih</span>
+                    <span className="text-[10px] text-emerald-400 font-mono">
+                      {students.filter(s => selectedStudentIds.includes(s.id) && s.phone).length}/{students.filter(s => selectedStudentIds.includes(s.id)).length} Memiliki No HP
+                    </span>
+                  </div>
+                  
+                  {/* Search inner contacts */}
+                  <div className="relative">
+                    <Search className="w-3 h-3 text-white/35 absolute left-2.5 top-2.5" />
+                    <input
+                      type="text"
+                      placeholder="Cari dalam kontak terpilih..."
+                      value={contactSearch}
+                      onChange={(e) => setContactSearch(e.target.value)}
+                      className="w-full text-[10.5px] bg-white/5 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-white placeholder-white/30 focus:outline-none focus:border-amber-500/40 transition-all font-sans"
+                    />
+                  </div>
+
+                  <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1 focus-scrollbar">
+                    {students
+                      .filter(s => selectedStudentIds.includes(s.id))
+                      .filter(s => 
+                        s.name.toLowerCase().includes(contactSearch.toLowerCase()) || 
+                        (s.phone && s.phone.includes(contactSearch))
+                      )
+                      .map((student) => (
+                        <div key={student.id} className="bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg p-2 flex items-center justify-between gap-2 transition-all">
+                          <div className="min-w-0">
+                            <div className="text-[11px] font-semibold text-white truncate">{student.name}</div>
+                            <div className="text-[10px] text-white/40 font-mono flex items-center gap-1 mt-0.5">
+                              <span>{student.className}</span>
+                              <span>•</span>
+                              <span className="truncate">{student.phone || "Tidak ada HP"}</span>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-1 shrink-0">
+                            {student.phone ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(student.phone);
+                                    setCopiedContactsStatus(`No. ${student.name} disalin!`);
+                                    setTimeout(() => setCopiedContactsStatus(null), 3000);
+                                  }}
+                                  title="Salin Nomor HP"
+                                  className="p-1 rounded bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all cursor-pointer"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                                <a
+                                  href={`https://wa.me/${student.phone.replace(/^0/, '62').replace(/\s+/g, '')}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title="Chat via WhatsApp"
+                                  className="p-1 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition-all cursor-pointer"
+                                >
+                                  <MessageSquare className="w-3 h-3" />
+                                </a>
+                              </>
+                            ) : (
+                              <span className="text-[9px] text-rose-400 font-semibold">Kosong</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+
+                {/* Right side: Broadcast customizer and copy actions */}
+                <div className="lg:col-span-7 flex flex-col space-y-3 bg-white/5 border border-white/5 rounded-xl p-3.5">
+                  <div className="space-y-1.5">
+                    <label className="text-[10.5px] font-bold text-white/70 block">
+                      Edit Isi Pesan Broadcast Pengumuman:
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={broadcastTemplate}
+                      onChange={(e) => setBroadcastTemplate(e.target.value)}
+                      placeholder="Tulis pesan pengumuman..."
+                      className="w-full text-[11px] bg-slate-950/40 border border-white/10 rounded-lg p-2.5 outline-none text-white/90 placeholder-white/30 font-sans focus:border-amber-500/40 transition-all resize-none"
+                    />
+                  </div>
+
+                  {/* Actions buttons */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allPhones = students
+                          .filter(s => selectedStudentIds.includes(s.id))
+                          .map(s => s.phone)
+                          .filter(Boolean)
+                          .map(num => num.replace(/\s+/g, ''))
+                          .join(", ");
+                        if (!allPhones) {
+                          alert("Tidak ada nomor HP siswa terpilih.");
+                          return;
+                        }
+                        navigator.clipboard.writeText(allPhones);
+                        setCopiedContactsStatus("Semua No. HP disalin ke clipboard!");
+                        setTimeout(() => setCopiedContactsStatus(null), 3000);
+                      }}
+                      className="bg-white/10 hover:bg-white/20 border border-white/10 text-white font-semibold text-[11px] px-3 py-2 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                    >
+                      <Copy className="w-3.5 h-3.5 text-blue-400" />
+                      Salin No HP (Koma)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const formattedList = students
+                          .filter(s => selectedStudentIds.includes(s.id))
+                          .map((s, index) => `${index + 1}. ${s.name} (${s.className}) - ${s.phone || "Tidak ada HP"}`)
+                          .join("\n");
+                        navigator.clipboard.writeText(formattedList);
+                        setCopiedContactsStatus("Daftar Nama & No. HP disalin!");
+                        setTimeout(() => setCopiedContactsStatus(null), 3000);
+                      }}
+                      className="bg-white/10 hover:bg-white/20 border border-white/10 text-white font-semibold text-[11px] px-3 py-2 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                    >
+                      <Share2 className="w-3.5 h-3.5 text-orange-400" />
+                      Salin Daftar Kontak
+                    </button>
+                  </div>
+
+                  <div className="pt-1.5 border-t border-white/5 space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const studentListStr = students
+                          .filter(s => selectedStudentIds.includes(s.id))
+                          .map(s => `- ${s.name} (${s.className})`)
+                          .join("\n");
+                        const finalMessage = `${broadcastTemplate}\n\nDaftar Siswa Penerima:\n${studentListStr}`;
+                        navigator.clipboard.writeText(finalMessage);
+                        setCopiedContactsStatus("Teks Lengkap Broadcast disalin!");
+                        setTimeout(() => setCopiedContactsStatus(null), 3000);
+                      }}
+                      className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] px-3 py-2.5 rounded-xl shadow-lg shadow-emerald-600/10 flex items-center justify-center gap-2 cursor-pointer transition-all"
+                    >
+                      <Send className="w-3.5 h-3.5 text-emerald-100" />
+                      Salin Teks Broadcast Lengkap (WhatsApp)
+                    </button>
+                    <p className="text-[10px] text-white/30 text-center font-sans">
+                      Tips: Tempel tulisan broadcast yang telah disalin di grup WA kelas atau siaran Anda.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -955,8 +1317,8 @@ export default function StudentsTab({
                             />
                           </td>
                           <td className="py-3 px-4">
-                            <div className="font-semibold text-white">{student.name}</div>
-                            <div className="text-[10px] text-white/40 font-mono mt-0.5">{student.nis}</div>
+                            <div className="font-semibold text-white">{highlightText(student.name, searchTerm)}</div>
+                            <div className="text-[10px] text-white/40 font-mono mt-0.5">{highlightText(student.nis, searchTerm)}</div>
                           </td>
                           <td className="py-3 px-4 text-white/70 hidden sm:table-cell">{student.className}</td>
                           <td className="py-3 px-4">
@@ -978,6 +1340,15 @@ export default function StudentsTab({
                                 title="Lihat Profil Lengkap"
                               >
                                 <Maximize2 className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  setActiveCertificateStudent(student);
+                                }}
+                                className="p-1.5 rounded text-emerald-400 hover:bg-white/10 transition-colors cursor-pointer"
+                                title="Cetak Sertifikat PKL"
+                              >
+                                <Award className="w-4 h-4" />
                               </button>
                               <button 
                                 onClick={() => handleEditStudentClick(student)}
@@ -1204,6 +1575,17 @@ export default function StudentsTab({
                     ) : (
                       <p className="text-white/40 italic text-[11px]">Belum ditugaskan ke perusahaan manapun.</p>
                     )}
+                  </div>
+
+                  {/* Certificate Quick Draft generation tab button */}
+                  <div className="pt-3 border-t border-white/10">
+                    <button
+                      onClick={() => setActiveCertificateStudent(selectedStudent)}
+                      className="w-full bg-emerald-600/90 hover:bg-emerald-500 text-white font-bold text-xs py-2.5 px-3 rounded-xl transition duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/10"
+                    >
+                      <Award className="w-4 h-4 text-white" />
+                      Cetak Sertifikat Kelulusan PKL
+                    </button>
                   </div>
                 </div>
               )}
@@ -2179,7 +2561,17 @@ export default function StudentsTab({
             </div>
 
             {/* Modal Actions Footer */}
-            <div className="flex justify-end pt-2 border-t border-white/10">
+            <div className="flex justify-end items-center gap-2 pt-3 border-t border-white/10">
+              <button 
+                onClick={() => {
+                  setActiveCertificateStudent(viewingStudent);
+                  setViewingStudent(null);
+                }}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-4 py-2 rounded-lg shadow-lg shadow-emerald-500/20 flex items-center gap-1.5 transition-all cursor-pointer font-sans"
+              >
+                <Award className="w-4 h-4 text-white" />
+                Sertifikat Otomatis
+              </button>
               <button 
                 onClick={() => setViewingStudent(null)}
                 className="bg-blue-600 text-white font-bold text-xs px-4 py-2 hover:bg-blue-500 rounded-lg shadow-lg shadow-blue-500/20 flex items-center gap-1.5 transition-all cursor-pointer font-sans"
@@ -2191,6 +2583,436 @@ export default function StudentsTab({
           </div>
         </div>
       )}
+
+      {/* MODAL: Generator Sertifikat Otomatis Workstation */}
+      {activeCertificateStudent && (() => {
+        const comp = companies.find(c => c.id === activeCertificateStudent.companyId);
+        const themeColors = {
+          navy: {
+            border: "#0e1e38",
+            accent: "#c5a059",
+            text: "#0f172a",
+            bg: "#faf9f5",
+            badgeBg: "#e0e7ff",
+            badgeText: "#0e1e38"
+          },
+          maroon: {
+            border: "#581014",
+            accent: "#c5a059",
+            text: "#1e1e1e",
+            bg: "#faf9f5",
+            badgeBg: "#fee2e2",
+            badgeText: "#581014"
+          },
+          gold: {
+            border: "#854d0e",
+            accent: "#0b0f19",
+            text: "#0b0f19",
+            bg: "#fdfbf7",
+            badgeBg: "#fef3c7",
+            badgeText: "#78350f"
+          }
+        };
+        const activeColor = themeColors[certTheme] || themeColors.navy;
+
+        return (
+          <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 overflow-y-auto flex items-start justify-center p-4 sm:p-6 no-print">
+            <div className="max-w-6xl w-full bg-slate-900 border border-white/10 rounded-2xl p-6 my-4 space-y-6 shadow-2xl relative block animate-fade-in text-white font-sans mr-0 ml-0">
+              
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+                <div className="space-y-1">
+                  <h3 className="font-display font-black text-sm text-white tracking-wide uppercase flex items-center gap-2">
+                    <Award className="w-5 h-5 text-emerald-400" />
+                    Sertifikat Otomatis Workstation • {activeCertificateStudent.name}
+                  </h3>
+                  <p className="text-white/50 text-[11px] leading-relaxed">
+                    Sistem generator sertifikat otomatis berbasis vektor SVG & Canvas. Sesuaikan parameter di bawah lalu cetak ke PDF atau unduh gambar.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
+                  <button
+                    type="button"
+                    onClick={handleDownloadPng}
+                    className="bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs py-2 px-3 rounded-xl shadow-lg transition-all cursor-pointer"
+                  >
+                    Unduh Gambar (PNG)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTimeout(() => {
+                        window.print();
+                      }, 200);
+                    }}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs py-2 px-4 rounded-xl shadow-lg shadow-emerald-500/25 transition-all cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Printer className="w-4 h-4 text-white" />
+                    Cetak (PDF A4)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveCertificateStudent(null)}
+                    className="bg-white/5 border border-white/10 hover:bg-white/10 text-white/50 hover:text-white text-xs py-2 px-3 rounded-xl transition cursor-pointer"
+                  >
+                    Tutup
+                  </button>
+                </div>
+              </div>
+
+              {/* Workstation Workspace Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+                
+                {/* Left 1 Column: Configurations Sidebar */}
+                <div className="lg:col-span-1 bg-white/3 border border-white/5 p-4 rounded-xl space-y-4 text-xs font-sans">
+                  <h4 className="font-bold text-white/80 uppercase tracking-wider text-[10px] border-b border-white/5 pb-1 flex items-center gap-1">
+                    <span>Pengaturan Isian</span>
+                  </h4>
+
+                  {/* Theme Select */}
+                  <div className="space-y-1.5">
+                    <label className="text-white/40 font-semibold text-[9px] uppercase tracking-wider block">Tema Desain</label>
+                    <div className="grid grid-cols-3 gap-1">
+                      {(['navy', 'maroon', 'gold'] as const).map(t => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setCertTheme(t)}
+                          className={`py-1 rounded text-[10px] font-bold capitalize border transition cursor-pointer ${
+                            certTheme === t 
+                              ? 'bg-blue-600/30 border-blue-500 text-blue-300' 
+                              : 'bg-black/25 border-white/5 text-white/55 hover:bg-white/5'
+                          }`}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* No Sertifikat */}
+                  <div className="space-y-1">
+                    <label className="text-white/40 font-semibold text-[9px] uppercase tracking-wider block">No. Registrasi</label>
+                    <input
+                      type="text"
+                      value={certNo}
+                      onChange={(e) => setCertNo(e.target.value)}
+                      className="w-full bg-black/40 border border-white/10 rounded px-2 mt-0.5 py-1.5 text-white/90 focus:border-blue-500 focus:outline-none text-[11px]"
+                    />
+                  </div>
+
+                  {/* Tanggal Sertifikat */}
+                  <div className="space-y-1">
+                    <label className="text-white/40 font-semibold text-[9px] uppercase tracking-wider block">Tanggal Cetak</label>
+                    <input
+                      type="text"
+                      value={certDate}
+                      onChange={(e) => setCertDate(e.target.value)}
+                      className="w-full bg-black/40 border border-white/10 rounded px-2 mt-0.5 py-1.5 text-white/90 focus:border-blue-500 focus:outline-none text-[11px]"
+                    />
+                  </div>
+
+                  {/* Periode/Durasi PKL */}
+                  <div className="space-y-1">
+                    <label className="text-white/40 font-semibold text-[9px] uppercase tracking-wider block">Periode Pelaksanaan</label>
+                    <input
+                      type="text"
+                      value={certDuration}
+                      onChange={(e) => setCertDuration(e.target.value)}
+                      className="w-full bg-black/40 border border-white/10 rounded px-2 mt-0.5 py-1.5 text-white/90 focus:border-blue-500 focus:outline-none text-[11px]"
+                    />
+                  </div>
+
+                  {/* Signer Sekolah */}
+                  <div className="space-y-2 border-t border-white/5 pt-2">
+                    <label className="text-white/40 font-bold text-[9px] uppercase tracking-wider block">Tanda Tangan Sekolah</label>
+                    <div className="space-y-1">
+                      <span className="text-[8px] text-white/30 block">Nama Pejabat</span>
+                      <input
+                        type="text"
+                        value={certSchoolSigner}
+                        onChange={(e) => setCertSchoolSigner(e.target.value)}
+                        className="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-white/90 focus:border-blue-500 focus:outline-none text-[11px]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[8px] text-white/30 block">Jabatan/Gelar</span>
+                      <input
+                        type="text"
+                        value={certSchoolTitle}
+                        onChange={(e) => setCertSchoolTitle(e.target.value)}
+                        className="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-white/90 focus:border-blue-500 focus:outline-none text-[11px]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[8px] text-white/30 block">NIP</span>
+                      <input
+                        type="text"
+                        value={certNip}
+                        onChange={(e) => setCertNip(e.target.value)}
+                        className="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-white/90 focus:border-blue-500 focus:outline-none text-[11px]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Signer Industri */}
+                  <div className="space-y-2 border-t border-white/5 pt-2">
+                    <label className="text-white/40 font-bold text-[9px] uppercase tracking-wider block">Tanda Tangan Industri</label>
+                    <div className="space-y-1">
+                      <span className="text-[8px] text-white/30 block">Nama Pembimbing dudi</span>
+                      <input
+                        type="text"
+                        value={certIndustrySigner}
+                        onChange={(e) => setCertIndustrySigner(e.target.value)}
+                        className="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-white/90 focus:border-blue-500 focus:outline-none text-[11px]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[8px] text-white/30 block">Jabatan DUDI</span>
+                      <input
+                        type="text"
+                        value={certIndustryTitle}
+                        onChange={(e) => setCertIndustryTitle(e.target.value)}
+                        className="w-full bg-black/40 border border-white/10 rounded px-2 py-1 text-white/90 focus:border-blue-500 focus:outline-none text-[11px]"
+                      />
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Right 3 Columns: High Fidelity Landscape Certificate Vector Preview Sheet */}
+                <div className="lg:col-span-3 bg-slate-950 p-4 sm:p-8 rounded-xl overflow-x-auto flex justify-center border border-white/5 relative">
+                  
+                  {/* Embedded landscape printer stylesheet for seamless window.print A4 aspect rendering */}
+                  <style>
+                    {`
+                      @media print {
+                        @page {
+                          size: landscape;
+                          margin: 0;
+                        }
+                        body {
+                          margin: 0 !important;
+                          background: white !important;
+                          -webkit-print-color-adjust: exact !important;
+                          print-color-adjust: exact !important;
+                        }
+                        .printable-certificate, .printable-certificate * {
+                          visibility: visible !important;
+                        }
+                        .printable-certificate {
+                          position: absolute !important;
+                          left: 0 !important;
+                          top: 0 !important;
+                          width: 297mm !important;
+                          height: 210mm !important;
+                          border: none !important;
+                          box-shadow: none !important;
+                          background: white !important;
+                          margin: 0 !important;
+                          padding: 0 !important;
+                          box-sizing: border-box !important;
+                          transform: none !important;
+                        }
+                        .no-print {
+                          display: none !important;
+                        }
+                      }
+                    `}
+                  </style>
+
+                  <div className="printable-certificate w-full max-w-[841px] aspect-[297/210] shrink-0 bg-white p-0 rounded shadow-2xl overflow-hidden relative border border-slate-350 flex items-center justify-center">
+                    
+                    {/* Exquisite High Fidelity Responsive Vector Certificate template */}
+                    <svg
+                      id="certificate-svg"
+                      viewBox="0 0 1000 700"
+                      className="w-full h-full"
+                      style={{ 
+                        fontFamily: "Georgia, Cambria, 'Times New Roman', serif",
+                        backgroundColor: activeColor.bg
+                      }}
+                    >
+                      {/* Outer Theme Border */}
+                      <rect x="20" y="20" width="960" height="660" fill="none" stroke={activeColor.border} strokeWidth="12" />
+                      
+                      {/* Inner Gold Micro Border */}
+                      <rect x="34" y="34" width="932" height="632" fill="none" stroke={activeColor.accent} strokeWidth="3" />
+                      
+                      {/* Decorative Gold Filigree Corner Ornaments */}
+                      {/* Top-Left */}
+                      <g transform="translate(34, 34)" stroke={activeColor.accent} strokeWidth="2" fill="none">
+                        <path d="M 0,0 L 50,0 Q 25,25 0,50 Z" fill={activeColor.border} />
+                        <line x1="0" y1="60" x2="60" y2="0" strokeWidth="1" />
+                        <line x1="0" y1="70" x2="70" y2="0" strokeWidth="1.5" />
+                        <line x1="0" y1="80" x2="80" y2="0" strokeWidth="1" strokeDasharray="3,3" />
+                        <circle cx="20" cy="20" r="4" fill={activeColor.accent} />
+                      </g>
+                      
+                      {/* Top-Right */}
+                      <g transform="translate(966, 34) scale(-1, 1)" stroke={activeColor.accent} strokeWidth="2" fill="none">
+                        <path d="M 0,0 L 50,0 Q 25,25 0,50 Z" fill={activeColor.border} />
+                        <line x1="0" y1="60" x2="60" y2="0" strokeWidth="1" />
+                        <line x1="0" y1="70" x2="70" y2="0" strokeWidth="1.5" />
+                        <line x1="0" y1="80" x2="80" y2="0" strokeWidth="1" strokeDasharray="3,3" />
+                        <circle cx="20" cy="20" r="4" fill={activeColor.accent} />
+                      </g>
+
+                      {/* Bottom-Left */}
+                      <g transform="translate(34, 666) scale(1, -1)" stroke={activeColor.accent} strokeWidth="2" fill="none">
+                        <path d="M 0,0 L 50,0 Q 25,25 0,50 Z" fill={activeColor.border} />
+                        <line x1="0" y1="60" x2="60" y2="0" strokeWidth="1" />
+                        <line x1="0" y1="70" x2="70" y2="0" strokeWidth="1.5" />
+                        <line x1="0" y1="80" x2="80" y2="0" strokeWidth="1" strokeDasharray="3,3" />
+                        <circle cx="20" cy="20" r="4" fill={activeColor.accent} />
+                      </g>
+
+                      {/* Bottom-Right */}
+                      <g transform="translate(966, 666) scale(-1, -1)" stroke={activeColor.accent} strokeWidth="2" fill="none">
+                        <path d="M 0,0 L 50,0 Q 25,25 0,50 Z" fill={activeColor.border} />
+                        <line x1="0" y1="60" x2="60" y2="0" strokeWidth="1" />
+                        <line x1="0" y1="70" x2="70" y2="0" strokeWidth="1.5" />
+                        <line x1="0" y1="80" x2="80" y2="0" strokeWidth="1" strokeDasharray="3,3" />
+                        <circle cx="20" cy="20" r="4" fill={activeColor.accent} />
+                      </g>
+
+                      {/* Header School Content */}
+                      <text x="500" y="78" fontFamily="sans-serif" fontSize="12" fontWeight="800" fill={activeColor.border} textAnchor="middle" letterSpacing="4">
+                        PEMERINTAH PROVINSI BANTEN • DINAS PENDIDIKAN
+                      </text>
+                      <text x="500" y="105" fontFamily="sans-serif" fontSize="21" fontWeight="950" fill={activeColor.border} textAnchor="middle" letterSpacing="2">
+                        SMK NEGERI 14 KABUPATEN TANGERANG
+                      </text>
+                      <text x="500" y="125" fontFamily="sans-serif" fontSize="9.5" fontWeight="semibold" fill="#666" textAnchor="middle" letterSpacing="0.5">
+                        Program Keahlian: Desain Komunikasi Visual (DKV) • Akreditasi A
+                      </text>
+                      <text x="500" y="137" fontFamily="sans-serif" fontSize="8" fill="#999" textAnchor="middle">
+                        Jl. Raya SMKN 14, Kab. Tangerang, Banten • Website: smkn14kabtangerang.sch.id
+                      </text>
+
+                      {/* Double Gold Header Separator */}
+                      <line x1="120" y1="152" x2="880" y2="152" stroke={activeColor.accent} strokeWidth="2.5" />
+                      <line x1="180" y1="156" x2="820" y2="156" stroke={activeColor.border} strokeWidth="0.8" />
+
+                      {/* Certificate Title */}
+                      <text x="500" y="205" fontFamily="Georgia, serif" fontSize="28" fontWeight="bold" fill={activeColor.border} textAnchor="middle" letterSpacing="1.5">
+                        SERTIFIKAT KELULUSAN PKL
+                      </text>
+                      <text x="500" y="227" fontFamily="sans-serif" fontSize="11" fontWeight="bold" fill={activeColor.accent} textAnchor="middle" letterSpacing="1.5">
+                        NO. REG: {certNo}
+                      </text>
+
+                      <text x="500" y="270" fontFamily="Georgia, serif" fontStyle="italic" fontSize="13.5" fill="#444" textAnchor="middle">
+                        Dengan ini menerangkan dan memberikan penghargaan setinggi-tingginya kepada siswa:
+                      </text>
+
+                      {/* Student's Full name display - Large luxurious styling */}
+                      <text x="500" y="325" fontFamily="Georgia, serif" fontSize="35" fontWeight="900" fill={activeColor.border} textAnchor="middle" letterSpacing="1">
+                        {activeCertificateStudent.name.toUpperCase()}
+                      </text>
+
+                      {/* Gold line under student name */}
+                      <line x1="300" y1="337" x2="700" y2="337" stroke={activeColor.accent} strokeWidth="1.5" />
+
+                      {/* NIS and Class specs */}
+                      <text x="500" y="358" fontFamily="sans-serif" fontSize="11" fontWeight="bold" fill="#555" textAnchor="middle">
+                        NIS: {activeCertificateStudent.nis}  •  Kelas: {activeCertificateStudent.className}
+                      </text>
+
+                      {/* Main Paragraph */}
+                      <text x="500" y="400" fontFamily="Georgia, serif" fontSize="12" fill="#333" textAnchor="middle">
+                        Telah selesai melaksanakan program <tspan fontWeight="bold" fill={activeColor.border}>Praktik Kerja Lapangan (PKL)</tspan> Industri secara intensif selama periode:
+                      </text>
+                      <text x="500" y="420" fontFamily="Georgia, serif" fontStyle="italic" fontSize="12.5" fontWeight="bold" fill={activeColor.border} textAnchor="middle">
+                        {certDuration}
+                      </text>
+
+                      <text x="500" y="445" fontFamily="Georgia, serif" fontSize="12" fill="#333" textAnchor="middle">
+                        bertempat pada Dunia Usaha, Dunia Industri, & Dunia Kerja (DUDI) rekanan Departemen DKV:
+                      </text>
+
+                      {/* Placed Company Name */}
+                      <text x="500" y="475" fontFamily="Georgia, serif" fontSize="18" fontWeight="bold" fill={activeColor.border} textAnchor="middle" letterSpacing="0.5">
+                        "{comp ? comp.name : 'MANDIRI / KARYA ALTERNATIF SEKOLAH'}"
+                      </text>
+
+                      {/* Skills Outlined Title */}
+                      <text x="500" y="515" fontFamily="sans-serif" fontSize="8.5" fontWeight="bold" fill="#666" textAnchor="middle" letterSpacing="2">
+                        KOMPETENSI UNGGULAN YANG DIKUASAI & DIVALIDASI:
+                      </text>
+
+                      {/* Centered Skills Pill rendering loops inside vector */}
+                      {activeCertificateStudent.skills && activeCertificateStudent.skills.slice(0, 4).map((sk, index) => {
+                        const total = Math.min(activeCertificateStudent.skills.length, 4);
+                        const pillWidth = 145;
+                        const pillGap = 12;
+                        const startX = 500 - ((total * pillWidth + (total - 1) * pillGap) / 2);
+                        const rx = startX + index * (pillWidth + pillGap);
+                        return (
+                          <g key={index} transform={`translate(${rx}, 528)`}>
+                            <rect width={pillWidth} height={21} rx="10.5" fill={activeColor.badgeBg} stroke={activeColor.accent} strokeWidth="1" />
+                            <text x={pillWidth / 2} y={13.5} fontFamily="sans-serif" fontSize="8.5" fontWeight="800" fill={activeColor.badgeText} textAnchor="middle">
+                              {sk.length > 21 ? sk.substring(0, 19) + ".." : sk}
+                            </text>
+                          </g>
+                        );
+                      })}
+
+                      {/* Left Signature - DUDI mentor */}
+                      <g transform="translate(150, 580)" fill="#333">
+                        <text x="0" y="0" fontFamily="sans-serif" fontSize="9" fontWeight="bold" fill="#666">MENGETAHUI PIHAK INDUSTRI,</text>
+                        <text x="0" y="14" fontFamily="sans-serif" fontSize="9.5" fontStyle="italic" fontWeight="bold" fill={activeColor.border}>
+                          {comp ? comp.name.substring(0, 32) : 'DUDI Mitra Industri'}
+                        </text>
+                        
+                        {/* Placeholder graphic stamp signature effect */}
+                        <path d="M 10 18 Q 45 35 80 18 T 150 18" fill="none" stroke="#2563eb" strokeWidth="1" strokeOpacity="0.25" />
+                        
+                        <text x="0" y="62" fontFamily="sans-serif" fontSize="10" fontWeight="bold" fill="#222" textDecoration="underline">
+                          {certIndustrySigner}
+                        </text>
+                        <text x="0" y="73" fontFamily="sans-serif" fontSize="8.5" fill="#666">
+                          {certIndustryTitle}
+                        </text>
+                      </g>
+
+                      {/* Right Signature - Head of DKV Program */}
+                      <g transform="translate(620, 580)" fill="#333">
+                        <text x="180" y="0" fontFamily="sans-serif" fontSize="9" fontWeight="bold" fill="#666" textAnchor="end">TANGERANG, {certDate.toUpperCase()}</text>
+                        <text x="180" y="14" fontFamily="sans-serif" fontSize="9.5" fontWeight="bold" fill={activeColor.border} textAnchor="end">KEPALA PROGRAM STUDI DKV</text>
+                        
+                        {/* School sign graphic decoration mock */}
+                        <path d="M 40 22 Q 90 40 120 15 T 160 25" fill="none" stroke="#4f46e5" strokeWidth="1" strokeOpacity="0.3" />
+
+                        <text x="180" y="62" fontFamily="sans-serif" fontSize="10.5" fontWeight="bold" fill="#111" textAnchor="end" textDecoration="underline">
+                          {certSchoolSigner}
+                        </text>
+                        <text x="180" y="73" fontFamily="sans-serif" fontSize="8.5" fill="#555" textAnchor="end">
+                          {certSchoolTitle} • NIP. {certNip}
+                        </text>
+                      </g>
+
+                      {/* Administrative Seal Circle Logo Ornament */}
+                      <g transform="translate(500, 615)" stroke={activeColor.accent} strokeWidth="1.2" fill="none" strokeOpacity="0.6">
+                        <circle cx="0" cy="0" r="32" />
+                        <circle cx="0" cy="0" r="28" strokeDasharray="3,2" />
+                        <text x="0" y="-12" fontFamily="sans-serif" fontSize="4.5" fontWeight="bold" fill={activeColor.accent} textAnchor="middle" stroke="none">SMKN 14</text>
+                        <text x="0" y="5" fontFamily="sans-serif" fontSize="4" fill={activeColor.accent} textAnchor="middle" stroke="none">DKV DEPT</text>
+                        <path d="M -8 13 L 0 5 L 8 13" stroke={activeColor.accent} />
+                        <circle cx="0" cy="0" r="2" fill={activeColor.accent} />
+                      </g>
+
+                    </svg>
+
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
